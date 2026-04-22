@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Plan de Tareas del Hogar</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- Login Screen -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      </div>
+      <h1>Plan de Tareas del Hogar</h1>
+      <p class="login-sub">Bienvenido — elige tu usuario</p>
+
+      <div class="user-picker">
+        <button class="user-btn" data-user="ruben">
+          <span class="avatar avatar-ruben">R</span>
+          <span>Rubén</span>
+        </button>
+        <button class="user-btn" data-user="natalia">
+          <span class="avatar avatar-natalia">N</span>
+          <span>Natalia</span>
+        </button>
+      </div>
+
+      <form id="login-form" class="login-form hidden" autocomplete="off">
+        <div class="selected-user">
+          <span id="selected-avatar" class="avatar"></span>
+          <span id="selected-name"></span>
+          <button type="button" id="change-user" class="link-btn">Cambiar</button>
+        </div>
+        <label>
+          <span>Contraseña</span>
+          <input type="password" id="password" inputmode="numeric" required autofocus />
+        </label>
+        <div id="login-error" class="error hidden">Contraseña incorrecta</div>
+        <button type="submit" class="primary-btn">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Main App -->
+  <main id="app" class="app hidden">
+    <header class="top-bar">
+      <div class="top-left">
+        <span id="user-avatar" class="avatar"></span>
+        <div>
+          <div class="hello" id="hello-text">Hola</div>
+          <div class="week-badge" id="week-badge">Semana 1</div>
+        </div>
+      </div>
+      <div class="top-right">
+        <button id="notif-btn" class="icon-btn" title="Activar notificaciones" aria-label="Notificaciones">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg>
+        </button>
+        <button id="logout-btn" class="icon-btn" title="Cerrar sesión" aria-label="Cerrar sesión">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="today" role="tab">Hoy</button>
+      <button class="tab" data-tab="week" role="tab">Semana</button>
+      <button class="tab" data-tab="month" role="tab">Mes</button>
+      <button class="tab" data-tab="rules" role="tab">Reglas</button>
+    </nav>
+
+    <!-- TAB: HOY -->
+    <section id="tab-today" class="tab-panel active" role="tabpanel">
+      <div class="date-card">
+        <div class="date-card-left">
+          <div class="big-day" id="today-day">Lunes</div>
+          <div class="big-date" id="today-date">22 de abril</div>
+        </div>
+        <div class="date-card-right">
+          <div class="role-badge" id="role-badge">Responsable principal</div>
+          <div class="progress-ring">
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <circle cx="20" cy="20" r="16" class="ring-bg"/>
+              <circle cx="20" cy="20" r="16" class="ring-fg" id="ring-fg" stroke-dasharray="100.53" stroke-dashoffset="100.53"/>
+            </svg>
+            <div class="ring-label" id="ring-label">0%</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <h2>Tareas de hoy</h2>
+        <span class="hint" id="today-count">0 tareas</span>
+      </div>
+      <ul id="today-tasks" class="task-list"></ul>
+
+      <div class="section-title">
+        <h2>Todos los días</h2>
+        <span class="hint">Rutina diaria</span>
+      </div>
+      <ul id="daily-tasks" class="task-list"></ul>
+    </section>
+
+    <!-- TAB: SEMANA -->
+    <section id="tab-week" class="tab-panel" role="tabpanel">
+      <div class="week-selector">
+        <button class="week-btn" data-week="1">Sem 1</button>
+        <button class="week-btn" data-week="2">Sem 2</button>
+        <button class="week-btn" data-week="3">Sem 3</button>
+        <button class="week-btn" data-week="4">Sem 4</button>
+      </div>
+      <div id="week-grid" class="week-grid"></div>
+    </section>
+
+    <!-- TAB: MES -->
+    <section id="tab-month" class="tab-panel" role="tabpanel">
+      <div class="info-card">
+        <h3>Servicios externos del mes</h3>
+        <ul class="info-list">
+          <li><span class="tag tag-3">S3</span> Peluquería de 2 perros</li>
+          <li><span class="tag tag-4">S4</span> Jardinería</li>
+          <li><span class="tag tag-4">S4</span> Lavado profundo de coche</li>
+          <li><span class="tag tag-2">S2</span> Lavado de carro básico (ustedes)</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <h3>Tareas mensuales</h3>
+        <ul class="info-list">
+          <li><span class="tag tag-3">S3</span> Limpiar ventanales</li>
+          <li><span class="tag tag-3">S3</span> Aspirar sillones</li>
+          <li><span class="tag tag-4">S4</span> Limpiar mosquiteros</li>
+          <li><span class="tag tag-4">S4</span> Limpiar closets</li>
+          <li><span class="tag tag-4">S4</span> Limpiar refri y alacena</li>
+          <li><span class="tag tag-4">S4</span> Limpiar apagadores</li>
+          <li><span class="tag tag-4">S4</span> Lavar lavadora</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <h3>2 veces por semana</h3>
+        <ul class="info-list plain">
+          <li>Limpiar estantes de cocina</li>
+          <li>Limpiar microondas</li>
+          <li>Limpiar baños (son 3 — cada quien su baño y quien hace el tercero)</li>
+          <li>Barrer pisos</li>
+          <li>Trapear pisos</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <h3>1 vez por semana</h3>
+        <ul class="info-list plain">
+          <li>Separar ropa por color</li>
+          <li>Lavar, colgar, doblar y guardar ropa</li>
+          <li>Tandas: oscura, color, blanca, toallas, ropa interior y de cocina</li>
+          <li>Cambiar sábanas de la cama</li>
+          <li>Limpiar jardín</li>
+          <li>Limpiar cochera</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- TAB: REGLAS -->
+    <section id="tab-rules" class="tab-panel" role="tabpanel">
+      <div class="rule-card rule-gold">
+        <h3>Regla de oro</h3>
+        <ul class="info-list plain">
+          <li>Si uno cocina → el otro lava</li>
+          <li>Nunca ambos hacen lo mismo</li>
+          <li>Comunicación + flexibilidad</li>
+        </ul>
+      </div>
+      <div class="rule-card rule-harmony">
+        <h3>Regla de convivencia</h3>
+        <p>No es 50/50, es justo según horarios y cargas. Trabajamos en equipo, no competimos.</p>
+      </div>
+      <div class="info-card">
+        <h3>Horarios</h3>
+        <div class="schedule">
+          <div class="schedule-block">
+            <div class="schedule-name"><span class="avatar avatar-ruben small">R</span> Rubén</div>
+            <ul class="info-list plain">
+              <li>Lun a Mié: 8:00am – 2:00pm</li>
+              <li>Viernes: 3:00pm – 9:00pm</li>
+              <li>Sábado: 8:00am – 2:00pm</li>
+            </ul>
+          </div>
+          <div class="schedule-block">
+            <div class="schedule-name"><span class="avatar avatar-natalia small">N</span> Natalia</div>
+            <ul class="info-list plain">
+              <li>Lun, Mié y Vie: 3:00pm – 9:00pm</li>
+              <li>Mar y Jue: 9:00am – 9:00pm</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="info-card">
+        <h3>Responsables por semana</h3>
+        <ul class="info-list plain">
+          <li><strong>Semana 1 y 3:</strong> Rubén principal, Natalia apoyo</li>
+          <li><strong>Semana 2 y 4:</strong> Natalia principal, Rubén apoyo</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <h3>Revisión semanal (domingo, 10 min)</h3>
+        <ul class="info-list plain">
+          <li>¿Qué funcionó bien?</li>
+          <li>¿Qué podemos mejorar?</li>
+          <li>Ajustar la próxima semana</li>
+        </ul>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+  </main>
+
+  <script src="./data.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
