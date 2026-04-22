@@ -4,8 +4,8 @@
   "description": "Dashboard de tareas del hogar para Rubén y Natalia",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#F5F3EE",
-  "theme_color": "#C15F3C",
+  "background_color": "#EFEBE2",
+  "theme_color": "#E8753D",
   "orientation": "portrait",
   "icons": [
     {
