@@ -1,0 +1,13 @@
+{
+  "name": "chores-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plan de tareas del hogar — Rubén y Natalia",
+  "engines": {
+    "node": "20.x"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.34.0"
+  }
+}

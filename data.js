@@ -1,113 +1,110 @@
-// Chores data extracted from the plan image
-// Two users: ruben, natalia
-// 4-week rotation. Week 1 & 3: Rubén principal. Week 2 & 4: Natalia principal.
+// Chores data — restructured for accurate business logic.
+//
+// Structure:
+//   DAILY_TASKS: run every day, not tied to week rotation. Shared checkboxes
+//     for dog duties; "either can check."
+//   WEEK_PLAN[w].days[dayKey]: day-specific tasks, one entry per checkable
+//     item. who can be "ruben" | "natalia" | "both" | "note".
+//
+// Regla de oro is encoded: for breakfast/lunch the principal cooks and apoyo
+// washes; for dinner apoyo cooks and principal washes.
 
 const USERS = {
-  ruben:   { name: "Rubén",   password: "990899", color: "#2563eb" },
-  natalia: { name: "Natalia", password: "abril13", color: "#ec4899" },
+  ruben:   { name: "Rubén",   color: "#2563eb" },
+  natalia: { name: "Natalia", color: "#ec4899" },
 };
 
 const DAY_NAMES = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
 const MONTH_NAMES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const DAY_KEYS = ["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
 
-// Daily routine — every day, both users
+// Runs every day, both users share them (anyone can check)
 const DAILY_TASKS = [
-  { id: "desayuno",   text: "Desayuno",                             who: "rotates" },
-  { id: "comida",     text: "Comida",                               who: "rotates" },
-  { id: "cena",       text: "Cena",                                 who: "rotates" },
-  { id: "trastes",    text: "Lavar trastes de cada comida",         who: "rotates" },
-  { id: "perros-comida", text: "Dar de comer a los perros (2 veces)", who: "both" },
-  { id: "perros-med",    text: "Medicina al perro (2 veces)",         who: "both" },
-  { id: "perros-limp",   text: "Limpiar pipís y popós de los perros", who: "both" },
-  { id: "barra",      text: "Limpiar barra de cocina y comedor",    who: "both" },
+  { id: "perros-comida-am", t: "Comida perros — mañana",  who: "both", group: "perros" },
+  { id: "perros-comida-pm", t: "Comida perros — noche",   who: "both", group: "perros" },
+  { id: "perros-med-am",    t: "Medicina del perro — mañana", who: "both", group: "perros" },
+  { id: "perros-med-pm",    t: "Medicina del perro — noche",  who: "both", group: "perros" },
+  { id: "perros-limpieza",  t: "Limpiar pipís y popós",    who: "both", group: "perros" },
 ];
 
-// Helpers for building the weekly plan.
-// principal = quien es responsable principal esa semana
-// apoyo     = la otra persona
-// Pattern pulled directly from the image for each day.
-function makeWeek(principal, apoyo, extras) {
-  const P = principal, A = apoyo;
-  const base = {
-    lunes: [
-      { t: "Desayuno", who: P },
-      { t: "Trastes + Limpieza + Perros", who: A },
-      { t: "Comida", who: P },
-      { t: "Cena", who: A },
-    ],
-    martes: [
-      { t: "Desayuno", who: P },
-      { t: "Trastes + Limpieza + Perros", who: A },
-      { t: "Comida", who: P },
-      { t: "Cena", who: A },
-      { t: "Barrer + Trapear pisos", who: A, icon: "broom" },
-    ],
-    miercoles: [
-      { t: "Desayuno", who: P },
-      { t: "Trastes + Limpieza + Perros", who: A },
-      { t: "Comida", who: P },
-      { t: "Cena", who: A },
-    ],
-    jueves: [
-      { t: "Desayuno", who: P },
-      { t: "Trastes + Limpieza + Perros", who: A },
-      { t: "Comida", who: P },
-      { t: "Cena", who: A },
-      { t: "Limpiar estantes de cocina", who: A, icon: "kitchen" },
-      { t: "Limpiar microondas", who: A, icon: "kitchen" },
-    ],
-    viernes: [
-      { t: "Desayuno", who: P },
-      { t: "Trastes + Limpieza + Perros", who: A },
-      { t: "Comida", who: P },
-      { t: "Cena", who: A },
-      { t: P === "ruben" ? "Rubén trabaja 3pm–9pm" : "Natalia trabaja 3pm–9pm", who: "note", icon: "work" },
-    ],
-    sabado: [
-      { t: "Desayuno", who: P },
-      { t: "Trastes + Limpieza + Perros", who: A },
-      { t: "Comida", who: P },
-      { t: "Cena", who: A },
-      { t: "Baño 1 + Baño común", who: P, icon: "bath" },
-      { t: "Limpiar su baño", who: A, icon: "bath" },
-    ],
-    domingo: [
-      { t: "Lavado + Sábanas + Exterior", who: "both", icon: "laundry", header: true },
-      { t: "Separar ropa por color", who: "both" },
-      { t: "Lavar y tender ropa", who: P },
-      { t: "Doblar ropa", who: A },
-      { t: "Guardar ropa (cada quien la suya)", who: "both" },
-      { t: "Quitar y lavar sábanas", who: P, icon: "bed" },
-      { t: "Poner sábanas limpias", who: A, icon: "bed" },
-      { t: "Limpiar jardín", who: P, icon: "garden" },
-      { t: "Limpiar cochera", who: A, icon: "car" },
-    ],
-  };
-  // Merge extras into specific days
-  if (extras) {
-    for (const day in extras) {
-      base[day] = base[day].concat(extras[day]);
-    }
-  }
-  return base;
+// Builds a weekday (lun–sáb) routine from the principal/apoyo assignment.
+// Encodes regla de oro: si uno cocina, el otro lava.
+function weekdayRoutine(P, A) {
+  return [
+    { id: "desayuno",         t: "Hacer desayuno",           who: P, group: "comidas" },
+    { id: "trastes-desayuno", t: "Lavar trastes desayuno",   who: A, group: "comidas" },
+    { id: "comida",           t: "Hacer comida",             who: P, group: "comidas" },
+    { id: "trastes-comida",   t: "Lavar trastes comida",     who: A, group: "comidas" },
+    { id: "cena",             t: "Hacer cena",               who: A, group: "comidas" },
+    { id: "trastes-cena",     t: "Lavar trastes cena",       who: P, group: "comidas" },
+    { id: "barra",            t: "Limpiar barra y comedor",  who: A, group: "limpieza" },
+  ];
 }
 
-// Week-specific extras from the image
+function makeWeek(P, A, extras = {}) {
+  const weekday = (dayId) => weekdayRoutine(P, A).map(t => ({ ...t, id: `${dayId}-${t.id}` }));
+
+  const plan = {
+    lunes:     weekday("lunes"),
+    martes:    weekday("martes").concat([
+      { id: "martes-barrer",  t: "Barrer pisos",  who: A, group: "limpieza" },
+      { id: "martes-trapear", t: "Trapear pisos", who: A, group: "limpieza" },
+    ]),
+    miercoles: weekday("miercoles"),
+    jueves:    weekday("jueves").concat([
+      { id: "jueves-estantes",   t: "Limpiar estantes de cocina", who: A, group: "limpieza" },
+      { id: "jueves-microondas", t: "Limpiar microondas",         who: A, group: "limpieza" },
+    ]),
+    viernes:   weekday("viernes").concat([
+      { id: `viernes-nota-${P}`, t: `${USERS[P].name} trabaja 3pm–9pm`, who: "note" },
+    ]),
+    sabado:    weekday("sabado").concat([
+      { id: "sabado-bano-principal", t: "Limpiar baño 1 + baño común", who: P, group: "baños" },
+      { id: "sabado-bano-apoyo",     t: "Limpiar su baño",             who: A, group: "baños" },
+    ]),
+    // Sunday is laundry + outdoor, no cooking rotation in the plan
+    domingo: [
+      { id: "domingo-header",     t: "Lavado + Sábanas + Exterior", who: "header" },
+      { id: "domingo-separar",    t: "Separar ropa por color",      who: "both", group: "ropa" },
+      { id: "domingo-lavar",      t: "Lavar y tender ropa",         who: P,      group: "ropa" },
+      { id: "domingo-doblar",     t: "Doblar ropa",                 who: A,      group: "ropa" },
+      { id: "domingo-guardar-r",  t: "Guardar su ropa",             who: "ruben",   group: "ropa" },
+      { id: "domingo-guardar-n",  t: "Guardar su ropa",             who: "natalia", group: "ropa" },
+      { id: "domingo-sabanas-q",  t: "Quitar y lavar sábanas",      who: P,      group: "ropa" },
+      { id: "domingo-sabanas-p",  t: "Poner sábanas limpias",       who: A,      group: "ropa" },
+      { id: "domingo-jardin",     t: "Limpiar jardín",              who: P,      group: "exterior" },
+      { id: "domingo-cochera",    t: "Limpiar cochera",             who: A,      group: "exterior" },
+    ],
+  };
+
+  // Merge week-specific extras (monthly tasks that land on specific weeks)
+  for (const day in extras) {
+    plan[day] = plan[day].concat(extras[day]);
+  }
+  return plan;
+}
+
+// Monthly tasks, mapped to the week they should happen per the plan image
 const WEEK_EXTRAS = {
-  1: {}, // baseline
-  2: {}, // baseline (car wash is mentioned as "SEMANA 2" external service, handled in monthly view)
+  1: {},
+  2: {
+    // "Lavado de carro básico (ustedes) - Semana 2" — put on Sunday
+    domingo: [
+      { id: "mes-lavar-carro-basico", t: "Lavar carro (básico)", who: "both", group: "mensual", monthly: true },
+    ],
+  },
   3: {
-    miercoles: [{ t: "Limpiar ventanales", who: "ruben", icon: "window", monthly: true }],
-    sabado:    [{ t: "Aspirar sillones", who: "natalia", icon: "couch", monthly: true }],
-    // peluquería de 2 perros — servicio externo (mes)
+    miercoles: [{ id: "mes-ventanales", t: "Limpiar ventanales", who: "ruben", group: "mensual", monthly: true }],
+    sabado:    [{ id: "mes-sillones",   t: "Aspirar sillones",   who: "natalia", group: "mensual", monthly: true }],
+    // Peluquería de 2 perros (servicio externo) — no checkbox, shown in Month view
   },
   4: {
-    miercoles: [{ t: "Limpiar mosquiteros", who: "ruben", icon: "window", monthly: true }],
+    miercoles: [{ id: "mes-mosquiteros", t: "Limpiar mosquiteros", who: "ruben", group: "mensual", monthly: true }],
     domingo: [
-      { t: "Limpiar closets", who: "natalia", icon: "closet", monthly: true },
-      { t: "Limpiar apagadores", who: "natalia", icon: "switch", monthly: true },
-      { t: "Limpiar refri y alacena", who: "both", icon: "kitchen", monthly: true },
-      { t: "Lavar lavadora", who: "both", icon: "laundry", monthly: true },
+      { id: "mes-closets",     t: "Limpiar closets",         who: "natalia", group: "mensual", monthly: true },
+      { id: "mes-apagadores",  t: "Limpiar apagadores",      who: "natalia", group: "mensual", monthly: true },
+      { id: "mes-refri",       t: "Limpiar refri y alacena", who: "both",    group: "mensual", monthly: true },
+      { id: "mes-lavadora",    t: "Lavar lavadora",          who: "both",    group: "mensual", monthly: true },
     ],
     // Jardinería y lavado profundo de coche — servicios externos
   },
@@ -120,14 +117,16 @@ const WEEK_PLAN = {
   4: { principal: "natalia", apoyo: "ruben",   days: makeWeek("natalia", "ruben",   WEEK_EXTRAS[4]) },
 };
 
-const DAY_KEYS = ["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
+// External services (informational, not checkable)
+const EXTERNAL_SERVICES = [
+  { t: "Peluquería de 2 perros", week: 3 },
+  { t: "Jardinería",             week: 4 },
+  { t: "Lavado profundo de coche", week: 4 },
+];
 
-// Determine current week (1–4) based on the week of the month.
-// We use ISO week boundaries so it rolls over cleanly.
-function getCurrentWeekNumber(date = new Date()) {
-  // Week number within the month: 1 + floor((dayOfMonth - 1 + firstWeekday) / 7), mod 4
+function getAutoWeekNumber(date = new Date()) {
   const day = date.getDate();
-  const first = new Date(date.getFullYear(), date.getMonth(), 1).getDay(); // 0=Sun
+  const first = new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   const weekOfMonth = Math.floor((day - 1 + first) / 7) + 1;
   return ((weekOfMonth - 1) % 4) + 1;
 }
@@ -138,4 +137,22 @@ function getTodayKey(date = new Date()) {
 
 function formatDateEs(date = new Date()) {
   return `${date.getDate()} de ${MONTH_NAMES[date.getMonth()]}`;
+}
+
+function dateKey(date = new Date()) {
+  // Local date in YYYY-MM-DD (so "today" aligns with the user's clock, not UTC)
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// ISO week string for Sunday review storage, e.g. "2026-W17"
+function isoWeekKey(date = new Date()) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }

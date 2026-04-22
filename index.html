@@ -16,7 +16,7 @@
     <div class="login-card">
       <div class="login-logo">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+          <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
         </svg>
       </div>
       <h1>Plan de Tareas del Hogar</h1>
@@ -41,7 +41,7 @@
         </div>
         <label>
           <span>Contraseña</span>
-          <input type="password" id="password" inputmode="numeric" required autofocus />
+          <input type="password" id="password" inputmode="text" required autofocus />
         </label>
         <div id="login-error" class="error hidden">Contraseña incorrecta</div>
         <button type="submit" class="primary-btn">Entrar</button>
@@ -54,13 +54,16 @@
     <header class="top-bar">
       <div class="top-left">
         <span id="user-avatar" class="avatar"></span>
-        <div>
+        <div class="top-meta">
           <div class="hello" id="hello-text">Hola</div>
-          <div class="week-badge" id="week-badge">Semana 1</div>
+          <button id="week-override-toggle" class="week-badge-btn">
+            <span id="week-badge">Semana 1</span>
+            <span id="week-override-indicator" class="override-chip auto">auto</span>
+          </button>
         </div>
       </div>
       <div class="top-right">
-        <button id="notif-btn" class="icon-btn" title="Activar notificaciones" aria-label="Notificaciones">
+        <button id="notif-btn" class="icon-btn" title="Notificaciones" aria-label="Notificaciones">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg>
         </button>
         <button id="logout-btn" class="icon-btn" title="Cerrar sesión" aria-label="Cerrar sesión">
@@ -68,6 +71,19 @@
         </button>
       </div>
     </header>
+
+    <!-- Week override popup -->
+    <div id="week-override-panel" class="override-panel">
+      <div class="override-title">Cambiar semana manualmente</div>
+      <div class="override-desc">La app calcula la semana automáticamente, pero si el ciclo se desfasó usa esto.</div>
+      <div class="week-selector">
+        <button class="week-btn" data-week="1">Sem 1</button>
+        <button class="week-btn" data-week="2">Sem 2</button>
+        <button class="week-btn" data-week="3">Sem 3</button>
+        <button class="week-btn" data-week="4">Sem 4</button>
+      </div>
+      <button id="week-override-reset" class="link-btn full">Volver a automático</button>
+    </div>
 
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="today" role="tab">Hoy</button>
@@ -82,9 +98,9 @@
         <div class="date-card-left">
           <div class="big-day" id="today-day">Lunes</div>
           <div class="big-date" id="today-date">22 de abril</div>
+          <div class="role-badge" id="role-badge">Responsable principal</div>
         </div>
         <div class="date-card-right">
-          <div class="role-badge" id="role-badge">Responsable principal</div>
           <div class="progress-ring">
             <svg viewBox="0 0 40 40" aria-hidden="true">
               <circle cx="20" cy="20" r="16" class="ring-bg"/>
@@ -95,17 +111,42 @@
         </div>
       </div>
 
-      <div class="section-title">
-        <h2>Tareas de hoy</h2>
-        <span class="hint" id="today-count">0 tareas</span>
+      <!-- Progress by person -->
+      <div class="progress-row">
+        <div class="progress-pill mine">
+          <span class="progress-label">Tuyo</span>
+          <span class="progress-value" id="count-mine">0/0</span>
+        </div>
+        <div class="progress-pill other">
+          <span class="progress-label" id="label-other">Otro</span>
+          <span class="progress-value" id="count-other">0/0</span>
+        </div>
+        <div class="progress-pill shared">
+          <span class="progress-label">Ambos</span>
+          <span class="progress-value" id="count-shared">0/0</span>
+        </div>
       </div>
-      <ul id="today-tasks" class="task-list"></ul>
+
+      <!-- Sunday review card -->
+      <div id="sunday-review" class="review-card hidden">
+        <h3>📝 Revisión de domingo (10 min)</h3>
+        <label><span>¿Qué funcionó bien?</span><textarea id="review-good" rows="2" placeholder="Lo que salió bien esta semana..."></textarea></label>
+        <label><span>¿Qué podemos mejorar?</span><textarea id="review-better" rows="2" placeholder="Ajustes que nos servirían..."></textarea></label>
+        <label><span>Ajustes para la próxima</span><textarea id="review-adjust" rows="2" placeholder="Cambios concretos a probar..."></textarea></label>
+        <div class="review-footer">
+          <span id="review-status" class="review-status"></span>
+          <button id="review-save" class="primary-btn">Guardar</button>
+        </div>
+      </div>
 
       <div class="section-title">
-        <h2>Todos los días</h2>
-        <span class="hint">Rutina diaria</span>
+        <h2>Tareas de hoy</h2>
+        <div class="section-controls">
+          <span class="hint" id="today-count">0 tareas</span>
+          <button id="mine-toggle" class="filter-toggle" title="Filtrar">Todas</button>
+        </div>
       </div>
-      <ul id="daily-tasks" class="task-list"></ul>
+      <ul id="today-tasks" class="task-list"></ul>
     </section>
 
     <!-- TAB: SEMANA -->
@@ -127,40 +168,27 @@
           <li><span class="tag tag-3">S3</span> Peluquería de 2 perros</li>
           <li><span class="tag tag-4">S4</span> Jardinería</li>
           <li><span class="tag tag-4">S4</span> Lavado profundo de coche</li>
-          <li><span class="tag tag-2">S2</span> Lavado de carro básico (ustedes)</li>
         </ul>
       </div>
       <div class="info-card">
-        <h3>Tareas mensuales</h3>
+        <h3>Tareas mensuales (asignadas a semanas)</h3>
         <ul class="info-list">
-          <li><span class="tag tag-3">S3</span> Limpiar ventanales</li>
-          <li><span class="tag tag-3">S3</span> Aspirar sillones</li>
-          <li><span class="tag tag-4">S4</span> Limpiar mosquiteros</li>
-          <li><span class="tag tag-4">S4</span> Limpiar closets</li>
-          <li><span class="tag tag-4">S4</span> Limpiar refri y alacena</li>
-          <li><span class="tag tag-4">S4</span> Limpiar apagadores</li>
-          <li><span class="tag tag-4">S4</span> Lavar lavadora</li>
+          <li><span class="tag tag-2">S2</span> Lavar carro básico (ustedes)</li>
+          <li><span class="tag tag-3">S3</span> Limpiar ventanales — Rubén</li>
+          <li><span class="tag tag-3">S3</span> Aspirar sillones — Natalia</li>
+          <li><span class="tag tag-4">S4</span> Limpiar mosquiteros — Rubén</li>
+          <li><span class="tag tag-4">S4</span> Limpiar closets — Natalia</li>
+          <li><span class="tag tag-4">S4</span> Limpiar apagadores — Natalia</li>
+          <li><span class="tag tag-4">S4</span> Limpiar refri y alacena — Ambos</li>
+          <li><span class="tag tag-4">S4</span> Lavar lavadora — Ambos</li>
         </ul>
       </div>
       <div class="info-card">
-        <h3>2 veces por semana</h3>
+        <h3>Rutinas frecuentes</h3>
         <ul class="info-list plain">
-          <li>Limpiar estantes de cocina</li>
-          <li>Limpiar microondas</li>
-          <li>Limpiar baños (son 3 — cada quien su baño y quien hace el tercero)</li>
-          <li>Barrer pisos</li>
-          <li>Trapear pisos</li>
-        </ul>
-      </div>
-      <div class="info-card">
-        <h3>1 vez por semana</h3>
-        <ul class="info-list plain">
-          <li>Separar ropa por color</li>
-          <li>Lavar, colgar, doblar y guardar ropa</li>
-          <li>Tandas: oscura, color, blanca, toallas, ropa interior y de cocina</li>
-          <li>Cambiar sábanas de la cama</li>
-          <li>Limpiar jardín</li>
-          <li>Limpiar cochera</li>
+          <li><strong>Diario:</strong> perros (comida, medicina, limpieza), barra y comedor</li>
+          <li><strong>2x/semana:</strong> estantes cocina (jueves), microondas (jueves), baños (sábado), barrer/trapear (martes)</li>
+          <li><strong>1x/semana:</strong> ropa completa y sábanas (domingo), jardín y cochera (domingo)</li>
         </ul>
       </div>
     </section>
@@ -204,14 +232,6 @@
         <ul class="info-list plain">
           <li><strong>Semana 1 y 3:</strong> Rubén principal, Natalia apoyo</li>
           <li><strong>Semana 2 y 4:</strong> Natalia principal, Rubén apoyo</li>
-        </ul>
-      </div>
-      <div class="info-card">
-        <h3>Revisión semanal (domingo, 10 min)</h3>
-        <ul class="info-list plain">
-          <li>¿Qué funcionó bien?</li>
-          <li>¿Qué podemos mejorar?</li>
-          <li>Ajustar la próxima semana</li>
         </ul>
       </div>
     </section>

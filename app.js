@@ -1,155 +1,436 @@
-// ====== State ======
-const STORAGE_USER = "chores.currentUser";
-const STORAGE_CHECKS = "chores.checks";   // { "YYYY-MM-DD|taskId": true }
-const STORAGE_NOTIF = "chores.notif";     // "on" | "off"
+// ========== Constants ==========
+const LS_TOKEN      = "chores.token";
+const LS_USER       = "chores.user";
+const LS_NOTIF      = "chores.notif";
+const LS_MINE_ONLY  = "chores.mineOnly";
+const LS_CACHE      = "chores.cache";      // offline/last-known state
 
-let state = {
-  user: null,        // "ruben" | "natalia"
-  currentWeek: getCurrentWeekNumber(),
-  viewedWeek: getCurrentWeekNumber(),
+const POLL_INTERVAL_MS = 8000;
+const RETRY_BACKOFF = [500, 1500, 4000, 10000];
+
+// ========== State ==========
+const app = {
+  token: localStorage.getItem(LS_TOKEN) || null,
+  user:  localStorage.getItem(LS_USER)  || null,
+  state: null,            // synced server state { checks, weekOverride, reviews }
+  mineOnly: localStorage.getItem(LS_MINE_ONLY) === "1",
+  viewedWeek: null,       // week shown on "Semana" tab
+  currentWeek: 1,         // computed on load
   selectedPickUser: null,
-  checks: loadChecks(),
+  pollTimer: null,
+  pendingOps: [],         // queue for offline operations
 };
 
-function loadChecks() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_CHECKS) || "{}"); }
-  catch { return {}; }
+// ========== Helpers ==========
+function $(sel, root = document) { return root.querySelector(sel); }
+function $$(sel, root = document) { return [...root.querySelectorAll(sel)]; }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
-function saveChecks() {
-  localStorage.setItem(STORAGE_CHECKS, JSON.stringify(state.checks));
-}
-function dateKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+function toast(msg, ms = 2200) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(toast._id);
+  toast._id = setTimeout(() => t.classList.add("hidden"), ms);
 }
 
-// ====== Login ======
-const loginScreen = document.getElementById("login-screen");
-const app = document.getElementById("app");
+function getEffectiveWeek() {
+  const override = app.state?.weekOverride?.week;
+  return override || app.currentWeek;
+}
+
+// ========== API ==========
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (app.token) headers.Authorization = `Bearer ${app.token}`;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) {
+    // token invalid — force re-login
+    handleLogout(true);
+    throw new Error("unauthorized");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || "request_failed"), { status: res.status, data });
+  return data;
+}
+
+async function apiLogin(user, password) {
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || "login_failed"), { status: res.status });
+  return data;
+}
+
+async function syncState() {
+  try {
+    const data = await api("/api/state");
+    app.state = data;
+    localStorage.setItem(LS_CACHE, JSON.stringify(data));
+    flushPendingOps();
+    renderAll();
+    return data;
+  } catch (e) {
+    if (e.message === "unauthorized") return null;
+    // offline — fall back to cached state
+    if (!app.state) {
+      const cached = localStorage.getItem(LS_CACHE);
+      if (cached) { try { app.state = JSON.parse(cached); } catch {} }
+    }
+    return app.state;
+  }
+}
+
+async function sendOp(op, attempt = 0) {
+  try {
+    const data = await api("/api/state", { method: "POST", body: JSON.stringify(op) });
+    app.state = data;
+    localStorage.setItem(LS_CACHE, JSON.stringify(data));
+    return data;
+  } catch (e) {
+    if (e.message === "unauthorized") throw e;
+    // queue op for retry
+    if (attempt < RETRY_BACKOFF.length) {
+      await new Promise(r => setTimeout(r, RETRY_BACKOFF[attempt]));
+      return sendOp(op, attempt + 1);
+    }
+    // still failing — queue for later sync
+    app.pendingOps.push(op);
+    toast("Sin conexión — se sincronizará después");
+    throw e;
+  }
+}
+
+async function flushPendingOps() {
+  if (!app.pendingOps.length) return;
+  const ops = app.pendingOps.slice();
+  app.pendingOps = [];
+  for (const op of ops) {
+    try { await sendOp(op); } catch { app.pendingOps.push(op); break; }
+  }
+}
+
+// ========== Login UI ==========
+const loginScreen = $("#login-screen");
+const mainApp = $("#app");
 
 function showLogin() {
   loginScreen.classList.remove("hidden");
-  app.classList.add("hidden");
+  mainApp.classList.add("hidden");
+  // Reset picker state
+  $(".user-picker").classList.remove("hidden");
+  $("#login-form").classList.add("hidden");
+  $("#login-error").classList.add("hidden");
+  $("#password").value = "";
 }
 function showApp() {
   loginScreen.classList.add("hidden");
-  app.classList.remove("hidden");
-  renderAll();
+  mainApp.classList.remove("hidden");
+  startPolling();
 }
 
-document.querySelectorAll(".user-btn").forEach(btn => {
+$$(".user-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    const user = btn.dataset.user;
-    state.selectedPickUser = user;
-    const u = USERS[user];
-    document.getElementById("selected-avatar").textContent = u.name[0];
-    document.getElementById("selected-avatar").className = "avatar avatar-" + user;
-    document.getElementById("selected-name").textContent = u.name;
-    document.querySelector(".user-picker").classList.add("hidden");
-    document.getElementById("login-form").classList.remove("hidden");
-    setTimeout(() => document.getElementById("password").focus(), 50);
+    const u = btn.dataset.user;
+    app.selectedPickUser = u;
+    $("#selected-avatar").textContent = USERS[u].name[0];
+    $("#selected-avatar").className = "avatar avatar-" + u;
+    $("#selected-name").textContent = USERS[u].name;
+    $(".user-picker").classList.add("hidden");
+    $("#login-form").classList.remove("hidden");
+    setTimeout(() => $("#password").focus(), 50);
   });
 });
 
-document.getElementById("change-user").addEventListener("click", () => {
-  document.querySelector(".user-picker").classList.remove("hidden");
-  document.getElementById("login-form").classList.add("hidden");
-  document.getElementById("password").value = "";
-  document.getElementById("login-error").classList.add("hidden");
+$("#change-user").addEventListener("click", () => {
+  $(".user-picker").classList.remove("hidden");
+  $("#login-form").classList.add("hidden");
+  $("#password").value = "";
+  $("#login-error").classList.add("hidden");
 });
 
-document.getElementById("login-form").addEventListener("submit", (e) => {
+$("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const pw = document.getElementById("password").value;
-  const target = USERS[state.selectedPickUser];
-  if (!target) return;
-  if (pw === target.password) {
-    state.user = state.selectedPickUser;
-    localStorage.setItem(STORAGE_USER, state.user);
-    document.getElementById("password").value = "";
-    document.getElementById("login-error").classList.add("hidden");
+  const pw = $("#password").value;
+  if (!app.selectedPickUser) return;
+  const btn = $("#login-form button[type=submit]");
+  btn.disabled = true;
+  btn.textContent = "Entrando...";
+  try {
+    const { token, user } = await apiLogin(app.selectedPickUser, pw);
+    app.token = token;
+    app.user = user;
+    localStorage.setItem(LS_TOKEN, token);
+    localStorage.setItem(LS_USER, user);
+    $("#login-error").classList.add("hidden");
+    $("#password").value = "";
+    await syncState();
     showApp();
-  } else {
-    document.getElementById("login-error").classList.remove("hidden");
-    document.getElementById("password").select();
+  } catch (err) {
+    const msg = err.status === 401 ? "Contraseña incorrecta"
+              : err.status === 429 ? "Muchos intentos. Espera unos minutos."
+              : "Error al conectar. Intenta de nuevo.";
+    $("#login-error").textContent = msg;
+    $("#login-error").classList.remove("hidden");
+    $("#password").select();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Entrar";
   }
 });
 
-// Auto-login
-const saved = localStorage.getItem(STORAGE_USER);
-if (saved && USERS[saved]) {
-  state.user = saved;
+function handleLogout(silent = false) {
+  if (app.token) { api("/api/logout", { method: "POST" }).catch(() => {}); }
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_USER);
+  app.token = null;
+  app.user = null;
+  app.selectedPickUser = null;
+  app.state = null;
+  stopPolling();
+  if (!silent) toast("Sesión cerrada");
+  showLogin();
+}
+
+$("#logout-btn").addEventListener("click", () => handleLogout());
+
+// Auto-login if token present
+if (app.token && app.user) {
   showApp();
+  syncState();
 } else {
   showLogin();
 }
 
-document.getElementById("logout-btn").addEventListener("click", () => {
-  localStorage.removeItem(STORAGE_USER);
-  state.user = null;
-  state.selectedPickUser = null;
-  document.querySelector(".user-picker").classList.remove("hidden");
-  document.getElementById("login-form").classList.add("hidden");
-  showLogin();
-});
-
-// ====== Tabs ======
-document.querySelectorAll(".tab").forEach(tab => {
+// ========== Tabs ==========
+$$(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    $$(".tab").forEach(t => t.classList.remove("active"));
+    $$(".tab-panel").forEach(p => p.classList.remove("active"));
     tab.classList.add("active");
-    document.getElementById("tab-" + tab.dataset.tab).classList.add("active");
+    $("#tab-" + tab.dataset.tab).classList.add("active");
+    if (tab.dataset.tab === "week" && !app.viewedWeek) {
+      renderWeek(getEffectiveWeek());
+    }
   });
 });
 
-// ====== Render ======
+// ========== Week selector ==========
+$$(".week-btn").forEach(btn => {
+  btn.addEventListener("click", () => renderWeek(+btn.dataset.week));
+});
+
+// ========== Week override ==========
+$("#week-override-toggle")?.addEventListener("click", () => {
+  $("#week-override-panel").classList.toggle("open");
+});
+
+$$("#week-override-panel .week-btn").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const w = +btn.dataset.week;
+    try {
+      await sendOp({ op: "setWeek", week: w });
+      toast(`Semana cambiada a ${w}`);
+      $("#week-override-panel").classList.remove("open");
+      renderAll();
+    } catch { toast("No se pudo cambiar"); }
+  });
+});
+
+$("#week-override-reset")?.addEventListener("click", async () => {
+  try {
+    await sendOp({ op: "setWeek", week: null });
+    toast("Volviendo a semana automática");
+    $("#week-override-panel").classList.remove("open");
+    renderAll();
+  } catch { toast("No se pudo cambiar"); }
+});
+
+// ========== Mine-only filter ==========
+$("#mine-toggle")?.addEventListener("click", () => {
+  app.mineOnly = !app.mineOnly;
+  localStorage.setItem(LS_MINE_ONLY, app.mineOnly ? "1" : "0");
+  $("#mine-toggle").classList.toggle("active", app.mineOnly);
+  $("#mine-toggle").textContent = app.mineOnly ? "Solo mías" : "Todas";
+  renderToday();
+});
+
+// ========== Polling ==========
+function startPolling() {
+  stopPolling();
+  app.pollTimer = setInterval(() => { if (!document.hidden) syncState(); }, POLL_INTERVAL_MS);
+}
+function stopPolling() {
+  if (app.pollTimer) clearInterval(app.pollTimer);
+  app.pollTimer = null;
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && app.token) syncState();
+});
+
+// ========== Rendering ==========
 function renderAll() {
+  if (!app.user) return;
+  app.currentWeek = getAutoWeekNumber();
   renderHeader();
   renderToday();
-  renderWeek(state.viewedWeek);
+  if ($("#tab-week").classList.contains("active") || app.viewedWeek) {
+    renderWeek(app.viewedWeek || getEffectiveWeek());
+  }
+  renderSundayReview();
 }
 
 function renderHeader() {
-  const u = USERS[state.user];
-  const avatar = document.getElementById("user-avatar");
+  const u = USERS[app.user];
+  const avatar = $("#user-avatar");
   avatar.textContent = u.name[0];
-  avatar.className = "avatar avatar-" + state.user;
-  document.getElementById("hello-text").textContent = `Hola, ${u.name}`;
-  document.getElementById("week-badge").textContent = `Semana ${state.currentWeek}`;
+  avatar.className = "avatar avatar-" + app.user;
+  $("#hello-text").textContent = `Hola, ${u.name}`;
+
+  const week = getEffectiveWeek();
+  const badge = $("#week-badge");
+  const override = !!app.state?.weekOverride?.week;
+  badge.textContent = `Semana ${week}` + (override ? " ·" : "");
+  $("#week-override-indicator").textContent = override ? "manual" : "auto";
+  $("#week-override-indicator").className = "override-chip " + (override ? "manual" : "auto");
+
+  // Highlight active week in override panel
+  $$("#week-override-panel .week-btn").forEach(b => {
+    b.classList.toggle("active", +b.dataset.week === week);
+  });
+
+  // Mine-only toggle state
+  const mt = $("#mine-toggle");
+  if (mt) {
+    mt.classList.toggle("active", app.mineOnly);
+    mt.textContent = app.mineOnly ? "Solo mías" : "Todas";
+  }
 }
 
-// Which color accent for "mine" rows
-function mineClass(who) {
-  return who === state.user ? "mine " + state.user : "";
+// Returns a flat list of tasks for a given day (daily + weekly merged).
+// Each task gets a stable id that encodes the date for per-day tracking.
+function buildDayTasks(week, dayKey, dateStr) {
+  const plan = WEEK_PLAN[week];
+  const daily = DAILY_TASKS.map(t => ({ ...t, checkKey: `${dateStr}|daily-${t.id}` }));
+  const weekly = (plan.days[dayKey] || []).map(t => ({
+    ...t,
+    checkKey: `${dateStr}|w${week}-${t.id}`,
+  }));
+  return { daily, weekly };
 }
 
-// Build a task row
-function buildTaskRow(task, opts = {}) {
-  const { dayK = getTodayKey(), showWho = true, allowCheck = true, taskIdPrefix = "" } = opts;
+function renderToday() {
+  const now = new Date();
+  const dk = dateKey(now);
+  const dayK = getTodayKey(now);
+  const week = getEffectiveWeek();
+  const plan = WEEK_PLAN[week];
+  const iAmPrincipal = plan.principal === app.user;
+
+  $("#today-day").textContent = DAY_NAMES[now.getDay()];
+  $("#today-date").textContent = formatDateEs(now);
+  $("#role-badge").textContent = iAmPrincipal ? "Responsable principal" : "Apoyo";
+
+  const { daily, weekly } = buildDayTasks(week, dayK, dk);
+  const all = [...daily, ...weekly];
+
+  // Filter mine-only if enabled
+  const visible = app.mineOnly
+    ? all.filter(t => t.who === app.user || t.who === "both")
+    : all;
+
+  // Partition for counts (exclude notes/headers)
+  const countable = all.filter(t => t.who !== "note" && t.who !== "header");
+  const mineTotal = countable.filter(t => t.who === app.user).length;
+  const mineDone  = countable.filter(t => t.who === app.user && app.state?.checks?.[t.checkKey]).length;
+  const otherU    = app.user === "ruben" ? "natalia" : "ruben";
+  const otherTotal = countable.filter(t => t.who === otherU).length;
+  const otherDone  = countable.filter(t => t.who === otherU && app.state?.checks?.[t.checkKey]).length;
+  const sharedTotal = countable.filter(t => t.who === "both").length;
+  const sharedDone  = countable.filter(t => t.who === "both" && app.state?.checks?.[t.checkKey]).length;
+
+  $("#count-mine").textContent    = `${mineDone}/${mineTotal}`;
+  $("#count-other").textContent   = `${otherDone}/${otherTotal}`;
+  $("#count-shared").textContent  = `${sharedDone}/${sharedTotal}`;
+  $("#label-other").textContent   = USERS[otherU].name;
+
+  const list = $("#today-tasks");
+  list.innerHTML = "";
+
+  // Group by `group` field for better organization
+  const groups = {
+    comidas:  { label: "Comidas", icon: "🍽️", items: [] },
+    perros:   { label: "Perros",  icon: "🐕", items: [] },
+    limpieza: { label: "Limpieza",icon: "🧹", items: [] },
+    baños:    { label: "Baños",   icon: "🚿", items: [] },
+    ropa:     { label: "Ropa",    icon: "👕", items: [] },
+    exterior: { label: "Exterior",icon: "🌳", items: [] },
+    mensual:  { label: "Mensual", icon: "📅", items: [] },
+    otros:    { label: "Otros",   icon: "",   items: [] },
+  };
+  visible.forEach(t => {
+    const g = t.group || "otros";
+    (groups[g] || groups.otros).items.push(t);
+  });
+
+  let groupCount = 0;
+  for (const key of Object.keys(groups)) {
+    const g = groups[key];
+    if (!g.items.length) continue;
+    const h = document.createElement("li");
+    h.className = "group-header";
+    h.innerHTML = `<span>${g.icon ? g.icon + " " : ""}${esc(g.label)}</span>`;
+    list.appendChild(h);
+    g.items.forEach(t => list.appendChild(buildTaskRow(t)));
+    groupCount++;
+  }
+
+  if (groupCount === 0) {
+    const empty = document.createElement("li");
+    empty.className = "empty-state";
+    empty.textContent = app.mineOnly ? "No tienes tareas pendientes hoy 🎉" : "No hay tareas hoy";
+    list.appendChild(empty);
+  }
+
+  // Today count summary on the section title
+  const pending = all.filter(t => t.who !== "note" && t.who !== "header" && !app.state?.checks?.[t.checkKey]).length;
+  $("#today-count").textContent = pending === 0 ? "Todo listo 🎉" : `${pending} pendientes`;
+
+  updateProgress();
+}
+
+function buildTaskRow(task) {
   const li = document.createElement("li");
   const who = task.who;
 
-  // Header / note rows
   if (who === "note") {
     li.className = "task note";
-    li.innerHTML = `<div class="task-text"><strong>Nota:</strong> ${escape(task.t)}</div>`;
+    li.innerHTML = `<div class="task-text"><strong>Nota:</strong> ${esc(task.t)}</div>`;
     return li;
   }
-  if (task.header) {
+  if (who === "header") {
     li.className = "task header-row";
-    li.innerHTML = `<div class="task-text">${escape(task.t)}</div>`;
+    li.innerHTML = `<div class="task-text">${esc(task.t)}</div>`;
     return li;
   }
 
-  const taskId = `${taskIdPrefix}${slug(task.t)}`;
-  const key = `${dateKey()}|${taskId}`;
-  const checked = !!state.checks[key];
+  const checked = !!app.state?.checks?.[task.checkKey];
+  const isMine = who === app.user;
+  const isShared = who === "both";
+  const mineClass = isMine ? "mine " + app.user : "";
+  li.className = "task " + mineClass + (checked ? " done" : "") + (isShared ? " shared" : "");
+  li.dataset.key = task.checkKey;
 
-  li.className = "task " + mineClass(who) + (checked ? " done" : "");
-  li.dataset.key = key;
+  const whoLabel = isShared ? "Ambos" : USERS[who].name;
+  const whoChip  = isShared ? "both"  : who;
 
-  const whoLabel = who === "both" ? "Ambos" : (USERS[who] ? USERS[who].name : "");
-  const whoChipClass = who === "both" ? "both" : who;
+  const byInfo = checked && app.state.checks[task.checkKey]?.by
+    ? `<span class="by-info">por ${esc(USERS[app.state.checks[task.checkKey].by]?.name || "")}</span>`
+    : "";
 
   li.innerHTML = `
     <div class="checkbox" aria-hidden="true">
@@ -157,110 +438,85 @@ function buildTaskRow(task, opts = {}) {
         <polyline points="20 6 9 17 4 12"/>
       </svg>
     </div>
-    <div class="task-text">${escape(task.t)}</div>
-    ${showWho ? `<div class="task-meta"><span class="who-chip ${whoChipClass}">${escape(whoLabel)}</span></div>` : ""}
+    <div class="task-body">
+      <div class="task-text">${esc(task.t)}</div>
+      ${byInfo}
+    </div>
+    <div class="task-meta"><span class="who-chip ${whoChip}">${esc(whoLabel)}</span></div>
   `;
 
-  if (allowCheck) {
-    li.addEventListener("click", () => {
-      if (state.checks[key]) delete state.checks[key];
-      else state.checks[key] = true;
-      saveChecks();
-      li.classList.toggle("done");
-      updateProgress();
-    });
-  }
+  li.addEventListener("click", async () => {
+    // Optimistic: check first, sync second
+    const nowChecked = !checked;
+    if (!app.state) app.state = { checks: {}, weekOverride: null, reviews: {} };
+    if (nowChecked) {
+      app.state.checks[task.checkKey] = { by: app.user, at: Date.now() };
+    } else {
+      delete app.state.checks[task.checkKey];
+    }
+    renderToday();
+    try {
+      await sendOp({ op: "check", key: task.checkKey, checked: nowChecked });
+    } catch {
+      // already queued for retry; UI already shows optimistic state
+    }
+  });
 
   return li;
 }
 
-function slug(s) {
-  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-");
-}
-function escape(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-}
-
-function renderToday() {
-  const today = new Date();
-  const dayKey = getTodayKey(today);
-  document.getElementById("today-day").textContent = DAY_NAMES[today.getDay()];
-  document.getElementById("today-date").textContent = formatDateEs(today);
-
-  const plan = WEEK_PLAN[state.currentWeek];
-  const isPrincipal = plan.principal === state.user;
-  document.getElementById("role-badge").textContent = isPrincipal ? "Responsable principal" : "Apoyo";
-
-  // Today tasks
-  const list = document.getElementById("today-tasks");
-  list.innerHTML = "";
-  const dayTasks = plan.days[dayKey] || [];
-  dayTasks.forEach(t => {
-    list.appendChild(buildTaskRow(t, { dayK: dayKey, taskIdPrefix: `w${state.currentWeek}-${dayKey}-` }));
-  });
-  document.getElementById("today-count").textContent = `${dayTasks.filter(t => t.who !== "note" && !t.header).length} tareas`;
-
-  // Daily routine (not day-specific) — show as reminders
-  const daily = document.getElementById("daily-tasks");
-  daily.innerHTML = "";
-  DAILY_TASKS.forEach(t => {
-    const row = {
-      t: t.text,
-      who: t.who === "rotates" ? "both" : "both",
-    };
-    daily.appendChild(buildTaskRow(row, { taskIdPrefix: "daily-" }));
-  });
-
-  updateProgress();
-}
-
 function updateProgress() {
-  const tasks = document.querySelectorAll("#today-tasks .task:not(.note):not(.header-row)");
-  const done = document.querySelectorAll("#today-tasks .task.done:not(.note):not(.header-row)");
-  const total = tasks.length || 1;
+  const rows = $$("#today-tasks .task:not(.note):not(.header-row)");
+  const done = rows.filter(r => r.classList.contains("done"));
+  const total = rows.length || 1;
   const pct = Math.round((done.length / total) * 100);
-  const circ = 2 * Math.PI * 16; // 100.53
+  const circ = 2 * Math.PI * 16;
   const offset = circ * (1 - pct / 100);
-  const ring = document.getElementById("ring-fg");
+  const ring = $("#ring-fg");
   if (ring) ring.style.strokeDashoffset = offset.toFixed(2);
-  const label = document.getElementById("ring-label");
-  if (label) label.textContent = pct + "%";
+  $("#ring-label").textContent = pct + "%";
 }
 
 function renderWeek(weekNum) {
-  state.viewedWeek = weekNum;
-  document.querySelectorAll(".week-btn").forEach(b => {
+  app.viewedWeek = weekNum;
+  $$(".week-selector .week-btn").forEach(b => {
     b.classList.toggle("active", +b.dataset.week === weekNum);
   });
   const plan = WEEK_PLAN[weekNum];
-  const grid = document.getElementById("week-grid");
+  const grid = $("#week-grid");
   grid.innerHTML = "";
 
-  const todayKey = getTodayKey();
-  const orderedDays = ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
+  const todayK = getTodayKey();
+  const ordered = ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
 
-  orderedDays.forEach(dk => {
+  ordered.forEach(dk => {
     const card = document.createElement("div");
-    card.className = "day-card" + (dk === todayKey && weekNum === state.currentWeek ? " today" : "");
+    card.className = "day-card" + (dk === todayK && weekNum === getEffectiveWeek() ? " today" : "");
     const items = plan.days[dk] || [];
     card.innerHTML = `
       <div class="day-card-header">
         <h3>${dk}</h3>
-        ${dk === todayKey && weekNum === state.currentWeek ? '<span class="tag">HOY</span>' : ''}
+        ${dk === todayK && weekNum === getEffectiveWeek() ? '<span class="tag">HOY</span>' : ''}
       </div>
       <div class="day-items"></div>
     `;
     const di = card.querySelector(".day-items");
     items.forEach(t => {
-      if (t.header) return;
+      if (t.who === "header") {
+        const row = document.createElement("div");
+        row.className = "day-item header";
+        row.innerHTML = `<strong>${esc(t.t)}</strong>`;
+        di.appendChild(row);
+        return;
+      }
       const row = document.createElement("div");
       row.className = "day-item";
       const whoName = t.who === "note" ? "" :
                       t.who === "both" ? "Ambos" :
-                      (USERS[t.who] ? USERS[t.who].name : "");
+                      USERS[t.who].name;
       row.innerHTML = `
-        <span>${escape(t.t)}</span>
-        ${whoName ? `<span class="who-chip ${t.who === "both" ? "both" : t.who}">${escape(whoName)}</span>` : ""}
+        <span>${esc(t.t)}</span>
+        ${whoName ? `<span class="who-chip ${t.who === "both" ? "both" : t.who}">${esc(whoName)}</span>` : ""}
       `;
       di.appendChild(row);
     });
@@ -268,122 +524,129 @@ function renderWeek(weekNum) {
   });
 }
 
-document.querySelectorAll(".week-btn").forEach(btn => {
-  btn.addEventListener("click", () => renderWeek(+btn.dataset.week));
-});
+// ========== Sunday review ==========
+function renderSundayReview() {
+  const now = new Date();
+  const isSunday = now.getDay() === 0;
+  const card = $("#sunday-review");
+  if (!card) return;
+  if (!isSunday) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
 
-// ====== Toast ======
-function toast(message, ms = 2400) {
-  const t = document.getElementById("toast");
-  t.textContent = message;
-  t.classList.remove("hidden");
-  clearTimeout(toast._id);
-  toast._id = setTimeout(() => t.classList.add("hidden"), ms);
+  const wk = isoWeekKey(now);
+  const existing = app.state?.reviews?.[wk];
+  if (existing) {
+    $("#review-good").value = existing.good || "";
+    $("#review-better").value = existing.better || "";
+    $("#review-adjust").value = existing.adjust || "";
+    $("#review-status").textContent = `Guardado por ${USERS[existing.by]?.name || ""}`;
+  } else {
+    $("#review-status").textContent = "";
+  }
 }
 
-// ====== Notifications ======
-const notifBtn = document.getElementById("notif-btn");
+$("#review-save")?.addEventListener("click", async () => {
+  const wk = isoWeekKey(new Date());
+  try {
+    await sendOp({
+      op: "review",
+      isoWeek: wk,
+      good: $("#review-good").value,
+      better: $("#review-better").value,
+      adjust: $("#review-adjust").value,
+    });
+    toast("Revisión guardada");
+    renderSundayReview();
+  } catch { toast("No se pudo guardar"); }
+});
+
+// ========== Notifications ==========
+const notifBtn = $("#notif-btn");
 function updateNotifBtn() {
-  const enabled = localStorage.getItem(STORAGE_NOTIF) === "on" && Notification.permission === "granted";
-  notifBtn.classList.toggle("active", enabled);
+  const on = localStorage.getItem(LS_NOTIF) === "on" && Notification.permission === "granted";
+  notifBtn.classList.toggle("active", on);
 }
 updateNotifBtn();
 
 notifBtn.addEventListener("click", async () => {
-  if (!("Notification" in window)) {
-    toast("Tu navegador no soporta notificaciones");
-    return;
-  }
+  if (!("Notification" in window)) return toast("Tu navegador no soporta notificaciones");
   if (Notification.permission === "granted") {
-    const isOn = localStorage.getItem(STORAGE_NOTIF) === "on";
-    localStorage.setItem(STORAGE_NOTIF, isOn ? "off" : "on");
-    toast(isOn ? "Notificaciones desactivadas" : "Notificaciones activadas");
-    if (!isOn) scheduleReminders();
+    const on = localStorage.getItem(LS_NOTIF) === "on";
+    localStorage.setItem(LS_NOTIF, on ? "off" : "on");
+    toast(on ? "Notificaciones desactivadas" : "Notificaciones activadas");
+    if (!on) scheduleReminders();
     updateNotifBtn();
     return;
   }
   const perm = await Notification.requestPermission();
   if (perm === "granted") {
-    localStorage.setItem(STORAGE_NOTIF, "on");
+    localStorage.setItem(LS_NOTIF, "on");
     toast("¡Notificaciones activadas!");
-    await registerSW();
+    await ensureSW();
     scheduleReminders();
-    // Welcome notification
-    showLocalNotification("¡Listo!", "Te recordaremos tus tareas del día ✨");
-  } else {
-    toast("Permiso denegado");
-  }
+    showLocalNotif("¡Listo!", "Te recordaremos tus tareas ✨");
+  } else toast("Permiso denegado");
   updateNotifBtn();
 });
 
-async function registerSW() {
+async function ensureSW() {
   if (!("serviceWorker" in navigator)) return null;
-  try {
-    const reg = await navigator.serviceWorker.register("./sw.js");
-    return reg;
-  } catch (e) {
-    console.warn("SW registration failed", e);
-    return null;
-  }
+  try { return await navigator.serviceWorker.register("./sw.js"); } catch { return null; }
 }
-
-async function showLocalNotification(title, body) {
+async function showLocalNotif(title, body) {
   const reg = await navigator.serviceWorker.getRegistration();
   const opts = { body, icon: "./icon.svg", badge: "./icon.svg", tag: "chores-" + Date.now() };
-  if (reg && reg.showNotification) {
-    reg.showNotification(title, opts);
-  } else if ("Notification" in window) {
-    new Notification(title, opts);
-  }
+  if (reg?.showNotification) reg.showNotification(title, opts);
+  else if ("Notification" in window) new Notification(title, opts);
 }
 
-// Schedule reminders via setTimeout — fires morning + evening reminders while tab is open,
-// and a daily check via the SW when closed.
 function scheduleReminders() {
-  if (localStorage.getItem(STORAGE_NOTIF) !== "on") return;
-
-  const pending = document.querySelectorAll("#today-tasks .task:not(.done):not(.note):not(.header-row)").length;
-  const u = USERS[state.user];
-
-  // Next reminder times: 9am and 6pm local
+  if (localStorage.getItem(LS_NOTIF) !== "on") return;
   const times = [{ h: 9, m: 0 }, { h: 18, m: 0 }];
   times.forEach(({ h, m }) => {
     const next = new Date();
     next.setHours(h, m, 0, 0);
     if (next <= new Date()) next.setDate(next.getDate() + 1);
     const ms = next - new Date();
-    setTimeout(() => {
-      const left = document.querySelectorAll("#today-tasks .task:not(.done):not(.note):not(.header-row)").length;
-      if (left > 0) {
-        showLocalNotification(
-          h === 9 ? `Buenos días, ${u.name}` : `Recordatorio de tareas`,
-          `Te quedan ${left} tareas hoy. ¡Tú puedes!`
+    setTimeout(async () => {
+      await syncState();
+      const dk = dateKey(new Date());
+      const week = getEffectiveWeek();
+      const dayK = getTodayKey(new Date());
+      const { daily, weekly } = buildDayTasks(week, dayK, dk);
+      const mine = [...daily, ...weekly].filter(t =>
+        (t.who === app.user || t.who === "both") && !app.state?.checks?.[t.checkKey]
+      );
+      if (mine.length > 0 && app.user) {
+        showLocalNotif(
+          h === 9 ? `Buenos días, ${USERS[app.user].name}` : "Recordatorio de tareas",
+          `Te quedan ${mine.length} tareas hoy. ¡Tú puedes!`
         );
       }
-      scheduleReminders(); // reschedule for next day
+      scheduleReminders();
     }, Math.min(ms, 2147483000));
   });
 }
 
-// Register SW quietly for offline use even without notifications
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => registerSW());
+  window.addEventListener("load", () => ensureSW());
+}
+if (localStorage.getItem(LS_NOTIF) === "on" && Notification.permission === "granted") {
+  scheduleReminders();
 }
 
-// Re-render at midnight so "today" updates
+// Refresh at midnight
 function scheduleMidnightRefresh() {
   const next = new Date();
   next.setHours(24, 0, 5, 0);
-  setTimeout(() => {
-    state.currentWeek = getCurrentWeekNumber();
-    state.viewedWeek = state.currentWeek;
+  setTimeout(async () => {
+    await syncState();
     renderAll();
     scheduleMidnightRefresh();
   }, next - new Date());
 }
 scheduleMidnightRefresh();
 
-// Kick reminders if already granted
-if (localStorage.getItem(STORAGE_NOTIF) === "on" && Notification.permission === "granted") {
-  scheduleReminders();
-}
+// Online/offline
+window.addEventListener("online", () => { toast("Conectado"); flushPendingOps(); syncState(); });
+window.addEventListener("offline", () => toast("Sin conexión"));
