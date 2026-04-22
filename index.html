@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#C15F3C" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#1F1E1C" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#E8753D" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0F0F0D" media="(prefers-color-scheme: dark)" />
   <title>Plan de Tareas del Hogar</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
@@ -16,8 +16,10 @@
   <section id="login-screen" class="login-screen">
     <div class="login-card">
       <div class="login-logo">
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 9.5L12 3l9 6.5"/>
+          <path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9"/>
+          <path d="M9 14l2 2 4-4"/>
         </svg>
       </div>
       <h1>Plan de Tareas del Hogar</h1>
@@ -57,7 +59,7 @@
         <span id="user-avatar" class="avatar"></span>
         <div class="top-meta">
           <div class="hello" id="hello-text">Hola</div>
-          <button id="week-override-toggle" class="week-badge-btn">
+          <button id="week-override-toggle" class="week-badge-btn" aria-label="Cambiar semana">
             <span id="week-badge">Semana 1</span>
             <span id="week-override-indicator" class="override-chip auto">auto</span>
           </button>
@@ -65,10 +67,10 @@
       </div>
       <div class="top-right">
         <button id="notif-btn" class="icon-btn" title="Notificaciones" aria-label="Notificaciones">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg>
         </button>
         <button id="logout-btn" class="icon-btn" title="Cerrar sesión" aria-label="Cerrar sesión">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         </button>
       </div>
     </header>
@@ -76,7 +78,7 @@
     <!-- Week override popup -->
     <div id="week-override-panel" class="override-panel">
       <div class="override-title">Cambiar semana manualmente</div>
-      <div class="override-desc">La app calcula la semana automáticamente, pero si el ciclo se desfasó usa esto.</div>
+      <div class="override-desc">La app calcula la semana automáticamente. Si el ciclo se desfasó, usa esto.</div>
       <div class="week-selector">
         <button class="week-btn" data-week="1">Sem 1</button>
         <button class="week-btn" data-week="2">Sem 2</button>
@@ -130,7 +132,7 @@
 
       <!-- Sunday review card -->
       <div id="sunday-review" class="review-card hidden">
-        <h3>📝 Revisión de domingo (10 min)</h3>
+        <h3>Revisión de domingo — 10 min</h3>
         <label><span>¿Qué funcionó bien?</span><textarea id="review-good" rows="2" placeholder="Lo que salió bien esta semana..."></textarea></label>
         <label><span>¿Qué podemos mejorar?</span><textarea id="review-better" rows="2" placeholder="Ajustes que nos servirían..."></textarea></label>
         <label><span>Ajustes para la próxima</span><textarea id="review-adjust" rows="2" placeholder="Cambios concretos a probar..."></textarea></label>
@@ -163,16 +165,26 @@
 
     <!-- TAB: MES -->
     <section id="tab-month" class="tab-panel" role="tabpanel">
-      <div class="info-card">
-        <h3>Servicios externos del mes</h3>
-        <ul class="info-list">
-          <li><span class="tag tag-3">S3</span> Peluquería de 2 perros</li>
-          <li><span class="tag tag-4">S4</span> Jardinería</li>
-          <li><span class="tag tag-4">S4</span> Lavado profundo de coche</li>
-        </ul>
+      <div class="bento-2col">
+        <div class="info-card">
+          <h3>Servicios externos del mes</h3>
+          <ul class="info-list">
+            <li><span class="tag tag-3">S3</span> Peluquería de 2 perros</li>
+            <li><span class="tag tag-4">S4</span> Jardinería</li>
+            <li><span class="tag tag-4">S4</span> Lavado profundo de coche</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h3>Rutinas frecuentes</h3>
+          <ul class="info-list plain">
+            <li><strong>Diario:</strong> perros (comida, medicina, limpieza), barra y comedor</li>
+            <li><strong>2×/semana:</strong> estantes cocina (jueves), microondas (jueves), baños (sábado), barrer y trapear (martes)</li>
+            <li><strong>1×/semana:</strong> ropa completa y sábanas (domingo), jardín y cochera (domingo)</li>
+          </ul>
+        </div>
       </div>
       <div class="info-card">
-        <h3>Tareas mensuales (asignadas a semanas)</h3>
+        <h3>Tareas mensuales — por semana</h3>
         <ul class="info-list">
           <li><span class="tag tag-2">S2</span> Lavar carro básico (ustedes)</li>
           <li><span class="tag tag-3">S3</span> Limpiar ventanales — Rubén</li>
@@ -184,29 +196,23 @@
           <li><span class="tag tag-4">S4</span> Lavar lavadora — Ambos</li>
         </ul>
       </div>
-      <div class="info-card">
-        <h3>Rutinas frecuentes</h3>
-        <ul class="info-list plain">
-          <li><strong>Diario:</strong> perros (comida, medicina, limpieza), barra y comedor</li>
-          <li><strong>2x/semana:</strong> estantes cocina (jueves), microondas (jueves), baños (sábado), barrer/trapear (martes)</li>
-          <li><strong>1x/semana:</strong> ropa completa y sábanas (domingo), jardín y cochera (domingo)</li>
-        </ul>
-      </div>
     </section>
 
     <!-- TAB: REGLAS -->
     <section id="tab-rules" class="tab-panel" role="tabpanel">
-      <div class="rule-card rule-gold">
-        <h3>Regla de oro</h3>
-        <ul class="info-list plain">
-          <li>Si uno cocina → el otro lava</li>
-          <li>Nunca ambos hacen lo mismo</li>
-          <li>Comunicación + flexibilidad</li>
-        </ul>
-      </div>
-      <div class="rule-card rule-harmony">
-        <h3>Regla de convivencia</h3>
-        <p>No es 50/50, es justo según horarios y cargas. Trabajamos en equipo, no competimos.</p>
+      <div class="bento-2col">
+        <div class="rule-card rule-gold">
+          <h3>Regla de oro</h3>
+          <ul class="info-list plain">
+            <li>Si uno cocina → el otro lava</li>
+            <li>Nunca ambos hacen lo mismo</li>
+            <li>Comunicación + flexibilidad</li>
+          </ul>
+        </div>
+        <div class="rule-card rule-harmony">
+          <h3>Regla de convivencia</h3>
+          <p>No es 50/50, es justo según horarios y cargas. Trabajamos en equipo, no competimos.</p>
+        </div>
       </div>
       <div class="info-card">
         <h3>Horarios</h3>
