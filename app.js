@@ -591,7 +591,20 @@ notifBtn.addEventListener("click", async () => {
 
 async function ensureSW() {
   if (!("serviceWorker" in navigator)) return null;
-  try { return await navigator.serviceWorker.register("./sw.js"); } catch { return null; }
+  try {
+    const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+    // When a new worker takes over, reload once so the user sees the new version
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+    reg.update().catch(() => {});
+    return reg;
+  } catch (e) {
+    return null;
+  }
 }
 async function showLocalNotif(title, body) {
   const reg = await navigator.serviceWorker.getRegistration();

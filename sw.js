@@ -1,5 +1,6 @@
-// Service worker for offline caching + local notifications
-const CACHE = "chores-dashboard-v1";
+// Network-first for HTML/JS/CSS so updates always come through;
+// cache is fallback for offline only. API calls are never intercepted.
+const CACHE = "chores-dashboard-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,34 +12,46 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
+  event.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => null)
+  );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      ),
+      self.clients.claim(),
+    ])
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
+
+  let url;
+  try { url = new URL(req.url); } catch { return; }
+
+  // Never intercept API calls — always live
+  if (url.pathname.startsWith("/api/")) return;
+  // Only handle same-origin
+  if (url.origin !== self.location.origin) return;
+
+  // Network-first: try network, fall back to cache if offline
   event.respondWith(
-    caches.match(req).then(
-      (cached) =>
-        cached ||
-        fetch(req)
-          .then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-            return res;
-          })
-          .catch(() => cached)
-    )
+    fetch(req)
+      .then((res) => {
+        if (res && res.status === 200 && res.type === "basic") {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(req).then((c) => c || caches.match("./index.html")))
   );
 });
 
@@ -54,7 +67,6 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// Support for future push notifications from a backend (not currently used)
 self.addEventListener("push", (event) => {
   const data = (() => { try { return event.data.json(); } catch { return { title: "Recordatorio", body: "Revisa tus tareas." }; }})();
   event.waitUntil(
