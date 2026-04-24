@@ -59,21 +59,34 @@ export async function rateLimit(key, max, windowSec) {
 }
 
 // --- State helpers ---
-// Shared state is stored under a single key as a JSON hash so we can atomically merge.
-// Schema: { checks: { "YYYY-MM-DD|taskId": { by: "ruben", at: 1234567890 } },
-//           weekOverride: { week: 2, setBy: "ruben", setAt: 1234 } | null,
-//           reviews: { "YYYY-WW": { good, better, adjust, at, by } },
-//           updated: timestamp }
+// Shared state is stored under a single key as a JSON blob so updates are atomic.
+// Schema:
+//   {
+//     checks: { "YYYY-MM-DD|taskId": { by: "ruben", at: 1234567890 } },
+//     weekOverride: { week: 2, setBy: "ruben", setAt: 1234 } | null,
+//     reviews: { "YYYY-WW": { good, better, adjust, at, by } },
+//     customTasks: [{ id, t, who, group, recurrence, days?, weeks?, date?, createdBy, createdAt }],
+//     updated: timestamp
+//   }
 
 const STATE_KEY = "chores:state:v1";
 
+function emptyState() {
+  return { checks: {}, weekOverride: null, reviews: {}, customTasks: [], updated: 0 };
+}
+
 export async function getState() {
   const raw = await redis.get(STATE_KEY);
-  if (!raw) return { checks: {}, weekOverride: null, reviews: {}, updated: 0 };
-  if (typeof raw === "string") {
-    try { return JSON.parse(raw); } catch { return { checks: {}, weekOverride: null, reviews: {}, updated: 0 }; }
-  }
-  return raw; // @upstash/redis auto-parses JSON
+  let s;
+  if (!raw) s = emptyState();
+  else if (typeof raw === "string") { try { s = JSON.parse(raw); } catch { s = emptyState(); } }
+  else s = raw;
+  // Backfill missing fields so older stored state doesn't break us
+  if (!s.checks)       s.checks = {};
+  if (!s.reviews)      s.reviews = {};
+  if (!Array.isArray(s.customTasks)) s.customTasks = [];
+  if (s.weekOverride === undefined)  s.weekOverride = null;
+  return s;
 }
 
 export async function setState(state) {

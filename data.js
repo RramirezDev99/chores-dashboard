@@ -156,3 +156,43 @@ function isoWeekKey(date = new Date()) {
   const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
+
+// Group options the user can pick when creating a custom task
+const GROUPS = [
+  { key: "comidas",  label: "Comidas",  icon: "🍽️" },
+  { key: "perros",   label: "Perros",   icon: "🐕" },
+  { key: "limpieza", label: "Limpieza", icon: "🧹" },
+  { key: "baños",    label: "Baños",    icon: "🚿" },
+  { key: "ropa",     label: "Ropa",     icon: "👕" },
+  { key: "exterior", label: "Exterior", icon: "🌳" },
+  { key: "mensual",  label: "Mensual",  icon: "📅" },
+  { key: "otros",    label: "Otros",    icon: "✨" },
+];
+
+const DAY_SHORT = {
+  lunes: "L", martes: "M", miercoles: "X",
+  jueves: "J", viernes: "V", sabado: "S", domingo: "D",
+};
+
+// Does a custom task apply on the given day / week / date?
+function customTaskApplies(task, { dayKey, weekNum, dateStr }) {
+  if (!task) return false;
+  if (task.recurrence === "daily") return true;
+  if (task.recurrence === "once") return task.date === dateStr;
+  if (task.recurrence === "weekly") {
+    const dayOK  = Array.isArray(task.days)  && task.days.includes(dayKey);
+    const weekOK = Array.isArray(task.weeks) && task.weeks.includes(weekNum);
+    return dayOK && weekOK;
+  }
+  return false;
+}
+
+// Return the subset of custom tasks that apply for a given day context.
+// Each returned task is stamped with the `customTask: true` flag so the UI
+// can show delete affordances.
+function getCustomTasksFor({ dayKey, weekNum, dateStr }, all) {
+  if (!Array.isArray(all)) return [];
+  return all
+    .filter(t => customTaskApplies(t, { dayKey, weekNum, dateStr }))
+    .map(t => ({ ...t, customTask: true }));
+}

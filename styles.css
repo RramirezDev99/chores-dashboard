@@ -1198,6 +1198,259 @@ input, textarea { font-family: inherit; font-size: inherit; }
   .progress-ring { width: 120px; height: 120px; }
 }
 
+/* ==========================================================================
+   ADD TASK — inline button, FAB, delete button, custom-task indicator
+   ========================================================================== */
+.add-task-inline {
+  margin-top: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--r);
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all var(--dur) var(--ease);
+}
+.add-task-inline:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.add-task-inline:active { transform: scale(0.99); }
+
+.add-task-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--glow-accent), 0 12px 24px rgba(232,117,61,0.25);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 50;
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur);
+}
+.add-task-fab:hover { background: var(--accent-hover); transform: scale(1.05); }
+.add-task-fab:active { transform: scale(0.98); }
+@media (min-width: 720px) {
+  .add-task-fab { right: 28px; bottom: 28px; }
+}
+
+.custom-dot {
+  color: var(--accent);
+  font-weight: 700;
+  margin-right: 4px;
+  font-size: 11px;
+  vertical-align: 1px;
+}
+
+.task-delete {
+  margin-left: 8px;
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--dur-fast);
+  flex-shrink: 0;
+}
+.task-delete:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+}
+
+.day-item.custom { /* nothing special beyond the dot */ }
+
+/* ==========================================================================
+   MODAL (add task)
+   ========================================================================== */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;   /* bottom-sheet on mobile */
+  justify-content: center;
+  animation: modalFadeIn 0.2s var(--ease-out);
+}
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(23, 22, 15, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.modal-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: 92dvh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  animation: slideSheetUp 0.28s var(--ease-out);
+  overflow: hidden;
+}
+.modal-handle {
+  width: 40px; height: 4px;
+  background: var(--border-strong);
+  border-radius: 2px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px 4px;
+  flex-shrink: 0;
+}
+.modal-header h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+.modal-close { width: 36px; height: 36px; }
+
+.modal-body {
+  padding: 12px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.field input[type="text"],
+.field input[type="date"] {
+  padding: 13px 15px;
+  font-size: 15.5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  outline: none;
+  transition: border-color var(--dur-fast);
+  font-family: inherit;
+}
+.field input[type="text"]:focus,
+.field input[type="date"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
+}
+
+.chip-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.chip-group-wrap { flex-wrap: wrap; }
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all var(--dur-fast);
+  user-select: none;
+  flex-shrink: 0;
+}
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip:hover { border-color: var(--ink-2); }
+.chip:has(input:checked) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.chip.day-chip {
+  width: 38px; height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-2);
+  margin-top: 6px;
+}
+.modal-footer .primary-btn { flex: 1; padding: 13px; }
+.secondary-btn {
+  padding: 13px 18px;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  font-size: 14.5px;
+  cursor: pointer;
+  transition: all var(--dur-fast);
+  font-family: inherit;
+}
+.secondary-btn:hover { background: var(--bg-2); border-color: var(--ink-2); }
+
+@media (min-width: 560px) {
+  .modal { align-items: center; }
+  .modal-sheet {
+    max-height: 88dvh;
+    border-radius: var(--r-lg);
+    border-bottom: 1px solid var(--border);
+    margin: 0 20px;
+    animation: modalScaleIn 0.24s var(--ease-out);
+  }
+  .modal-handle { display: none; }
+  .modal-header { padding-top: 20px; }
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideSheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes modalScaleIn {
+  from { transform: scale(0.97); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

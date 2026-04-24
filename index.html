@@ -150,6 +150,11 @@
         </div>
       </div>
       <ul id="today-tasks" class="task-list"></ul>
+
+      <button id="add-task-btn" class="add-task-inline" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Agregar tarea</span>
+      </button>
     </section>
 
     <!-- TAB: SEMANA -->
@@ -245,6 +250,96 @@
 
     <div id="toast" class="toast hidden"></div>
   </main>
+
+  <!-- Floating add-task button (appears on Today tab) -->
+  <button id="add-task-fab" class="add-task-fab hidden" type="button" aria-label="Agregar tarea">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+
+  <!-- Add task modal -->
+  <div id="task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h2 id="task-modal-title">Nueva tarea</h2>
+        <button class="icon-btn modal-close" data-close-modal aria-label="Cerrar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <form id="task-form" class="modal-body" autocomplete="off">
+        <label class="field">
+          <span class="field-label">Nombre de la tarea</span>
+          <input id="tf-text" type="text" maxlength="120" placeholder="Ej. Regar las plantas" required />
+        </label>
+
+        <div class="field">
+          <span class="field-label">¿Quién?</span>
+          <div class="chip-group" role="radiogroup" id="tf-who">
+            <label class="chip"><input type="radio" name="who" value="ruben"><span>Rubén</span></label>
+            <label class="chip"><input type="radio" name="who" value="natalia"><span>Natalia</span></label>
+            <label class="chip"><input type="radio" name="who" value="both" checked><span>Ambos</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Categoría</span>
+          <div class="chip-group chip-group-wrap" role="radiogroup" id="tf-group">
+            <label class="chip"><input type="radio" name="group" value="otros" checked><span>✨ Otros</span></label>
+            <label class="chip"><input type="radio" name="group" value="comidas"><span>🍽️ Comidas</span></label>
+            <label class="chip"><input type="radio" name="group" value="perros"><span>🐕 Perros</span></label>
+            <label class="chip"><input type="radio" name="group" value="limpieza"><span>🧹 Limpieza</span></label>
+            <label class="chip"><input type="radio" name="group" value="baños"><span>🚿 Baños</span></label>
+            <label class="chip"><input type="radio" name="group" value="ropa"><span>👕 Ropa</span></label>
+            <label class="chip"><input type="radio" name="group" value="exterior"><span>🌳 Exterior</span></label>
+            <label class="chip"><input type="radio" name="group" value="mensual"><span>📅 Mensual</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">¿Cuándo?</span>
+          <div class="chip-group" role="radiogroup" id="tf-recurrence">
+            <label class="chip"><input type="radio" name="recurrence" value="once" checked><span>Solo un día</span></label>
+            <label class="chip"><input type="radio" name="recurrence" value="daily"><span>Todos los días</span></label>
+            <label class="chip"><input type="radio" name="recurrence" value="weekly"><span>Días específicos</span></label>
+          </div>
+        </div>
+
+        <label class="field" id="tf-date-field">
+          <span class="field-label">Fecha</span>
+          <input id="tf-date" type="date" />
+        </label>
+
+        <div class="field hidden" id="tf-weekly-field">
+          <span class="field-label">Días de la semana</span>
+          <div class="chip-group chip-group-wrap" id="tf-days">
+            <label class="chip day-chip"><input type="checkbox" value="lunes"><span>L</span></label>
+            <label class="chip day-chip"><input type="checkbox" value="martes"><span>M</span></label>
+            <label class="chip day-chip"><input type="checkbox" value="miercoles"><span>X</span></label>
+            <label class="chip day-chip"><input type="checkbox" value="jueves"><span>J</span></label>
+            <label class="chip day-chip"><input type="checkbox" value="viernes"><span>V</span></label>
+            <label class="chip day-chip"><input type="checkbox" value="sabado"><span>S</span></label>
+            <label class="chip day-chip"><input type="checkbox" value="domingo"><span>D</span></label>
+          </div>
+          <span class="field-label" style="margin-top:12px;display:block">¿En qué semanas?</span>
+          <div class="chip-group" id="tf-weeks">
+            <label class="chip"><input type="checkbox" value="1" checked><span>Sem 1</span></label>
+            <label class="chip"><input type="checkbox" value="2" checked><span>Sem 2</span></label>
+            <label class="chip"><input type="checkbox" value="3" checked><span>Sem 3</span></label>
+            <label class="chip"><input type="checkbox" value="4" checked><span>Sem 4</span></label>
+          </div>
+        </div>
+
+        <div id="tf-error" class="error hidden"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="secondary-btn" data-close-modal>Cancelar</button>
+          <button type="submit" class="primary-btn" id="tf-submit">Agregar tarea</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="./data.js"></script>
   <script src="./app.js"></script>

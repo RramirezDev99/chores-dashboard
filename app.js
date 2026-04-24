@@ -259,6 +259,121 @@ $("#mine-toggle")?.addEventListener("click", () => {
   renderToday();
 });
 
+// ========== Add task modal ==========
+const modal       = $("#task-modal");
+const modalForm   = $("#task-form");
+const modalError  = $("#tf-error");
+const addFab      = $("#add-task-fab");
+
+function openModal() {
+  // Reset form
+  modalForm.reset();
+  // Default who = current user for convenience; default group = otros
+  const whoDefault = app.user === "ruben" ? "ruben" : "natalia";
+  const whoRadio = modalForm.querySelector(`input[name=who][value=${whoDefault}]`);
+  if (whoRadio) whoRadio.checked = true;
+  modalForm.querySelector('input[name="group"][value="otros"]').checked = true;
+  modalForm.querySelector('input[name="recurrence"][value="once"]').checked = true;
+  // Set default date to today
+  $("#tf-date").value = dateKey(new Date());
+  // Check all weeks by default
+  modalForm.querySelectorAll('#tf-weeks input').forEach(cb => cb.checked = true);
+  modalForm.querySelectorAll('#tf-days input').forEach(cb => cb.checked = false);
+  updateRecurrenceVisibility();
+  modalError.classList.add("hidden");
+  modal.classList.remove("hidden");
+  setTimeout(() => $("#tf-text").focus(), 100);
+  document.body.style.overflow = "hidden";
+}
+
+function closeModal() {
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function updateRecurrenceVisibility() {
+  const val = modalForm.querySelector('input[name="recurrence"]:checked')?.value;
+  $("#tf-date-field").classList.toggle("hidden", val !== "once");
+  $("#tf-weekly-field").classList.toggle("hidden", val !== "weekly");
+}
+
+$("#add-task-btn")?.addEventListener("click", openModal);
+addFab?.addEventListener("click", openModal);
+
+modal.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close-modal]")) closeModal();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
+});
+
+modalForm.querySelectorAll('input[name="recurrence"]').forEach(r => {
+  r.addEventListener("change", updateRecurrenceVisibility);
+});
+
+modalForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  modalError.classList.add("hidden");
+
+  const fd = new FormData(modalForm);
+  const t = $("#tf-text").value.trim();
+  const who = fd.get("who");
+  const group = fd.get("group");
+  const recurrence = fd.get("recurrence");
+
+  if (!t) {
+    modalError.textContent = "Pon un nombre a la tarea";
+    modalError.classList.remove("hidden");
+    return;
+  }
+
+  const payload = { t, who, group, recurrence };
+
+  if (recurrence === "once") {
+    const d = $("#tf-date").value;
+    if (!d) {
+      modalError.textContent = "Elige una fecha";
+      modalError.classList.remove("hidden");
+      return;
+    }
+    payload.date = d;
+  } else if (recurrence === "weekly") {
+    const days  = $$('#tf-days input:checked').map(i => i.value);
+    const weeks = $$('#tf-weeks input:checked').map(i => Number(i.value));
+    if (!days.length)  { modalError.textContent = "Elige al menos un día"; modalError.classList.remove("hidden"); return; }
+    if (!weeks.length) { modalError.textContent = "Elige al menos una semana"; modalError.classList.remove("hidden"); return; }
+    payload.days = days;
+    payload.weeks = weeks;
+  }
+
+  const btn = $("#tf-submit");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+  try {
+    await sendOp({ op: "addTask", task: payload });
+    toast("Tarea agregada");
+    closeModal();
+    renderAll();
+  } catch (err) {
+    modalError.textContent = "No se pudo guardar. Intenta de nuevo.";
+    modalError.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Agregar tarea";
+  }
+});
+
+// Show FAB only on Today tab
+function updateFabVisibility() {
+  const todayActive = $("#tab-today").classList.contains("active");
+  const loggedIn = !!app.user;
+  if (addFab) addFab.classList.toggle("hidden", !(todayActive && loggedIn));
+}
+// Observe tab switches
+$$(".tab").forEach(t => t.addEventListener("click", () => setTimeout(updateFabVisibility, 0)));
+
+
 // ========== Polling ==========
 function startPolling() {
   stopPolling();
@@ -311,7 +426,7 @@ function renderHeader() {
   }
 }
 
-// Returns a flat list of tasks for a given day (daily + weekly merged).
+// Returns a flat list of tasks for a given day (daily + weekly + custom merged).
 // Each task gets a stable id that encodes the date for per-day tracking.
 function buildDayTasks(week, dayKey, dateStr) {
   const plan = WEEK_PLAN[week];
@@ -320,7 +435,11 @@ function buildDayTasks(week, dayKey, dateStr) {
     ...t,
     checkKey: `${dateStr}|w${week}-${t.id}`,
   }));
-  return { daily, weekly };
+  const custom = getCustomTasksFor(
+    { dayKey, weekNum: week, dateStr },
+    app.state?.customTasks || []
+  ).map(t => ({ ...t, checkKey: `${dateStr}|${t.id}` }));
+  return { daily, weekly, custom };
 }
 
 function renderToday() {
@@ -335,8 +454,8 @@ function renderToday() {
   $("#today-date").textContent = formatDateEs(now);
   $("#role-badge").textContent = iAmPrincipal ? "Responsable principal" : "Apoyo";
 
-  const { daily, weekly } = buildDayTasks(week, dayK, dk);
-  const all = [...daily, ...weekly];
+  const { daily, weekly, custom } = buildDayTasks(week, dayK, dk);
+  const all = [...daily, ...weekly, ...custom];
 
   // Filter mine-only if enabled
   const visible = app.mineOnly
@@ -432,6 +551,13 @@ function buildTaskRow(task) {
     ? `<span class="by-info">por ${esc(USERS[app.state.checks[task.checkKey].by]?.name || "")}</span>`
     : "";
 
+  const customIndicator = task.customTask ? `<span class="custom-dot" title="Tarea personalizada">✦</span>` : "";
+  const deleteBtn = task.customTask
+    ? `<button class="task-delete" type="button" aria-label="Eliminar tarea" data-task-id="${esc(task.id)}">
+         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+       </button>`
+    : "";
+
   li.innerHTML = `
     <div class="checkbox" aria-hidden="true">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -439,16 +565,22 @@ function buildTaskRow(task) {
       </svg>
     </div>
     <div class="task-body">
-      <div class="task-text">${esc(task.t)}</div>
+      <div class="task-text">${customIndicator}${esc(task.t)}</div>
       ${byInfo}
     </div>
-    <div class="task-meta"><span class="who-chip ${whoChip}">${esc(whoLabel)}</span></div>
+    <div class="task-meta">
+      <span class="who-chip ${whoChip}">${esc(whoLabel)}</span>
+      ${deleteBtn}
+    </div>
   `;
 
-  li.addEventListener("click", async () => {
+  li.addEventListener("click", async (e) => {
+    // Ignore clicks on the delete button
+    if (e.target.closest(".task-delete")) return;
+
     // Optimistic: check first, sync second
     const nowChecked = !checked;
-    if (!app.state) app.state = { checks: {}, weekOverride: null, reviews: {} };
+    if (!app.state) app.state = { checks: {}, weekOverride: null, reviews: {}, customTasks: [] };
     if (nowChecked) {
       app.state.checks[task.checkKey] = { by: app.user, at: Date.now() };
     } else {
@@ -461,6 +593,27 @@ function buildTaskRow(task) {
       // already queued for retry; UI already shows optimistic state
     }
   });
+
+  const delBtn = li.querySelector(".task-delete");
+  if (delBtn) {
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("¿Eliminar esta tarea personalizada?")) return;
+      const id = delBtn.dataset.taskId;
+      // Optimistic removal
+      if (app.state?.customTasks) {
+        app.state.customTasks = app.state.customTasks.filter(ct => ct.id !== id);
+      }
+      renderAll();
+      try {
+        await sendOp({ op: "deleteTask", id });
+        toast("Tarea eliminada");
+      } catch {
+        toast("No se pudo eliminar");
+        syncState(); // re-sync to recover real state
+      }
+    });
+  }
 
   return li;
 }
@@ -489,10 +642,20 @@ function renderWeek(weekNum) {
   const todayK = getTodayKey();
   const ordered = ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
 
+  // For each day, build a representative dateStr (in the future enough we don't
+  // render stale "once" tasks from past dates — we want the weekly view to be
+  // a template, so ignore "once" tasks here).
   ordered.forEach(dk => {
     const card = document.createElement("div");
     card.className = "day-card" + (dk === todayK && weekNum === getEffectiveWeek() ? " today" : "");
-    const items = plan.days[dk] || [];
+    const items = [...(plan.days[dk] || [])];
+    // Merge recurring custom tasks (skip "once" since this view is a template)
+    const recurring = (app.state?.customTasks || []).filter(t => t.recurrence !== "once");
+    const custom = recurring
+      .filter(t => customTaskApplies(t, { dayKey: dk, weekNum, dateStr: "0000-00-00" }))
+      .map(t => ({ ...t, customTask: true }));
+    const all = [...items, ...custom];
+
     card.innerHTML = `
       <div class="day-card-header">
         <h3>${dk}</h3>
@@ -501,7 +664,7 @@ function renderWeek(weekNum) {
       <div class="day-items"></div>
     `;
     const di = card.querySelector(".day-items");
-    items.forEach(t => {
+    all.forEach(t => {
       if (t.who === "header") {
         const row = document.createElement("div");
         row.className = "day-item header";
@@ -510,12 +673,13 @@ function renderWeek(weekNum) {
         return;
       }
       const row = document.createElement("div");
-      row.className = "day-item";
+      row.className = "day-item" + (t.customTask ? " custom" : "");
       const whoName = t.who === "note" ? "" :
                       t.who === "both" ? "Ambos" :
                       USERS[t.who].name;
+      const dot = t.customTask ? `<span class="custom-dot">✦</span>` : "";
       row.innerHTML = `
-        <span>${esc(t.t)}</span>
+        <span>${dot}${esc(t.t)}</span>
         ${whoName ? `<span class="who-chip ${t.who === "both" ? "both" : t.who}">${esc(whoName)}</span>` : ""}
       `;
       di.appendChild(row);
