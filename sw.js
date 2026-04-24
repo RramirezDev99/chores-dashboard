@@ -1,6 +1,6 @@
 // Network-first for HTML/JS/CSS so updates always come through;
 // cache is fallback for offline only. API calls are never intercepted.
-const CACHE = "chores-dashboard-v4";
+const CACHE = "chores-dashboard-v5";
 const ASSETS = [
   "./",
   "./index.html",

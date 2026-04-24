@@ -91,6 +91,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="today" role="tab">Hoy</button>
       <button class="tab" data-tab="week" role="tab">Semana</button>
+      <button class="tab" data-tab="menu" role="tab">Menú</button>
       <button class="tab" data-tab="month" role="tab">Mes</button>
       <button class="tab" data-tab="rules" role="tab">Reglas</button>
     </nav>
@@ -166,6 +167,28 @@
         <button class="week-btn" data-week="4">Sem 4</button>
       </div>
       <div id="week-grid" class="week-grid"></div>
+    </section>
+
+    <!-- TAB: MENÚ -->
+    <section id="tab-menu" class="tab-panel" role="tabpanel">
+      <div class="week-selector" id="menu-week-selector">
+        <button class="week-btn" data-menu-week="1">Sem 1</button>
+        <button class="week-btn" data-menu-week="2">Sem 2</button>
+        <button class="week-btn" data-menu-week="3">Sem 3</button>
+        <button class="week-btn" data-menu-week="4">Sem 4</button>
+      </div>
+
+      <div class="section-title">
+        <h2>Plan de comidas</h2>
+        <span class="hint" id="menu-week-hint">Semana 1</span>
+      </div>
+      <div id="menu-meals" class="menu-meals"></div>
+
+      <div class="section-title">
+        <h2>Lista del súper</h2>
+        <span class="hint" id="shop-progress">0/0</span>
+      </div>
+      <div id="menu-shopping" class="menu-shopping"></div>
     </section>
 
     <!-- TAB: MES -->

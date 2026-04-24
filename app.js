@@ -216,6 +216,9 @@ $$(".tab").forEach(tab => {
     if (tab.dataset.tab === "week" && !app.viewedWeek) {
       renderWeek(getEffectiveWeek());
     }
+    if (tab.dataset.tab === "menu") {
+      renderMenu(app.viewedMenuWeek || getEffectiveWeek());
+    }
   });
 });
 
@@ -396,6 +399,9 @@ function renderAll() {
   if ($("#tab-week").classList.contains("active") || app.viewedWeek) {
     renderWeek(app.viewedWeek || getEffectiveWeek());
   }
+  if (app.viewedMenuWeek) {
+    renderMenu(app.viewedMenuWeek);
+  }
   renderSundayReview();
 }
 
@@ -558,6 +564,10 @@ function buildTaskRow(task) {
        </button>`
     : "";
 
+  const subtitleHTML = task.subtitle
+    ? `<div class="task-subtitle">${esc(task.subtitle)}</div>`
+    : "";
+
   li.innerHTML = `
     <div class="checkbox" aria-hidden="true">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -566,6 +576,7 @@ function buildTaskRow(task) {
     </div>
     <div class="task-body">
       <div class="task-text">${customIndicator}${esc(task.t)}</div>
+      ${subtitleHTML}
       ${byInfo}
     </div>
     <div class="task-meta">
@@ -687,6 +698,107 @@ function renderWeek(weekNum) {
     grid.appendChild(card);
   });
 }
+
+// ========== Menu (meals + shopping) ==========
+const MENU_DAY_LABELS = {
+  lunes: "Lunes", martes: "Martes", miercoles: "Miércoles",
+  jueves: "Jueves", viernes: "Viernes", sabado: "Sábado",
+};
+
+function renderMenu(weekNum) {
+  app.viewedMenuWeek = weekNum;
+  $$("#menu-week-selector .week-btn").forEach(b => {
+    b.classList.toggle("active", +b.dataset.menuWeek === weekNum);
+  });
+  $("#menu-week-hint").textContent = `Semana ${weekNum}`;
+
+  // --- Meal plan ---
+  const meals = MEALS[weekNum] || {};
+  const mealsRoot = $("#menu-meals");
+  mealsRoot.innerHTML = "";
+  for (const day of ["lunes","martes","miercoles","jueves","viernes","sabado"]) {
+    const d = meals[day];
+    if (!d) continue;
+    const card = document.createElement("div");
+    card.className = "menu-day";
+    card.innerHTML = `
+      <div class="menu-day-name">${MENU_DAY_LABELS[day]}</div>
+      <div class="menu-meal"><span class="menu-meal-tag">🍳 Desayuno</span><span>${esc(d.desayuno || "—")}</span></div>
+      <div class="menu-meal"><span class="menu-meal-tag">🍽️ Comida</span><span>${esc(d.comida || "—")}</span></div>
+      <div class="menu-meal"><span class="menu-meal-tag">🌙 Cena</span><span>${esc(d.cena || "—")}</span></div>
+    `;
+    mealsRoot.appendChild(card);
+  }
+
+  // --- Shopping list ---
+  const iso = isoWeekKey(new Date());
+  const shop = SHOPPING[weekNum] || {};
+  const shopRoot = $("#menu-shopping");
+  shopRoot.innerHTML = "";
+  let total = 0, done = 0;
+
+  for (const category of Object.keys(shop)) {
+    const items = shop[category];
+    const group = document.createElement("div");
+    group.className = "shop-group";
+    group.innerHTML = `<div class="shop-group-title">${esc(category)}</div>`;
+    const list = document.createElement("ul");
+    list.className = "shop-list";
+    items.forEach(item => {
+      total++;
+      const key = `${iso}|shop-w${weekNum}-${shopSlug(item)}`;
+      const checked = !!app.state?.checks?.[key];
+      if (checked) done++;
+      const li = document.createElement("li");
+      li.className = "shop-item" + (checked ? " done" : "");
+      li.dataset.key = key;
+      li.innerHTML = `
+        <div class="checkbox" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="shop-item-text">${esc(item)}</div>
+      `;
+      li.addEventListener("click", async () => {
+        const nowChecked = !li.classList.contains("done");
+        li.classList.toggle("done");
+        if (!app.state) app.state = { checks: {}, weekOverride: null, reviews: {}, customTasks: [] };
+        if (nowChecked) app.state.checks[key] = { by: app.user, at: Date.now() };
+        else delete app.state.checks[key];
+        // Update counter immediately (optimistic)
+        renderShopCounter();
+        try { await sendOp({ op: "check", key, checked: nowChecked }); }
+        catch {}
+      });
+      list.appendChild(li);
+    });
+    group.appendChild(list);
+    shopRoot.appendChild(group);
+  }
+
+  renderShopCounter(done, total);
+
+  // Stash for counter updates
+  shopRoot.dataset.total = total;
+  shopRoot.dataset.isoWeek = iso;
+  shopRoot.dataset.weekNum = weekNum;
+}
+
+function renderShopCounter(done, total) {
+  const el = $("#shop-progress");
+  if (!el) return;
+  if (done == null || total == null) {
+    // Recalculate from DOM
+    const all = $$("#menu-shopping .shop-item");
+    total = all.length;
+    done = all.filter(i => i.classList.contains("done")).length;
+  }
+  el.textContent = `${done}/${total}`;
+}
+
+// Wire up menu week selector
+$$("#menu-week-selector .week-btn").forEach(btn => {
+  btn.addEventListener("click", () => renderMenu(+btn.dataset.menuWeek));
+});
 
 // ========== Sunday review ==========
 function renderSundayReview() {
