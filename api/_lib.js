@@ -63,16 +63,26 @@ export async function rateLimit(key, max, windowSec) {
 // Schema:
 //   {
 //     checks: { "YYYY-MM-DD|taskId": { by: "ruben", at: 1234567890 } },
-//     weekOverride: { week: 2, setBy: "ruben", setAt: 1234 } | null,
+//     weekOverride: { week: 2, setBy, setAt } | null,
 //     reviews: { "YYYY-WW": { good, better, adjust, at, by } },
 //     customTasks: [{ id, t, who, group, recurrence, days?, weeks?, date?, createdBy, createdAt }],
+//     bills: [{ id, name, defaultAmount, dueDay, category, defaultPayer, icon, createdBy, createdAt }],
+//     payments: { "YYYY-MM": { "bill-xxx": { amount, paidBy, paidAt, note? } } },
 //     updated: timestamp
 //   }
 
 const STATE_KEY = "chores:state:v1";
 
 function emptyState() {
-  return { checks: {}, weekOverride: null, reviews: {}, customTasks: [], updated: 0 };
+  return {
+    checks: {},
+    weekOverride: null,
+    reviews: {},
+    customTasks: [],
+    bills: [],
+    payments: {},
+    updated: 0,
+  };
 }
 
 export async function getState() {
@@ -85,6 +95,8 @@ export async function getState() {
   if (!s.checks)       s.checks = {};
   if (!s.reviews)      s.reviews = {};
   if (!Array.isArray(s.customTasks)) s.customTasks = [];
+  if (!Array.isArray(s.bills))       s.bills = [];
+  if (!s.payments || typeof s.payments !== "object") s.payments = {};
   if (s.weekOverride === undefined)  s.weekOverride = null;
   return s;
 }

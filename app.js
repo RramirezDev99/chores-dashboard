@@ -219,6 +219,9 @@ $$(".tab").forEach(tab => {
     if (tab.dataset.tab === "menu") {
       renderMenu(app.viewedMenuWeek || getEffectiveWeek());
     }
+    if (tab.dataset.tab === "pagos") {
+      renderPagos(app.viewedPagosMonth || currentMonth());
+    }
   });
 });
 
@@ -401,6 +404,9 @@ function renderAll() {
   }
   if (app.viewedMenuWeek) {
     renderMenu(app.viewedMenuWeek);
+  }
+  if ($("#tab-pagos").classList.contains("active") || app.viewedPagosMonth) {
+    renderPagos(app.viewedPagosMonth || currentMonth());
   }
   renderSundayReview();
 }
@@ -800,6 +806,427 @@ $$("#menu-week-selector .week-btn").forEach(btn => {
   btn.addEventListener("click", () => renderMenu(+btn.dataset.menuWeek));
 });
 
+// ========== Pagos (monthly bills) ==========
+const MONTH_NAMES_CAP = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const DUE_SOON_DAYS = 3;
+
+function currentMonth(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}`;
+}
+function monthOffset(monthStr, delta) {
+  const [y, m] = monthStr.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function monthTitle(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  return `${MONTH_NAMES_CAP[m-1]} ${y}`;
+}
+function lastDayOfMonth(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+function fmtMoney(n) {
+  try {
+    return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(Number(n) || 0);
+  } catch {
+    return `$${Math.round(Number(n) || 0)}`;
+  }
+}
+
+// Status per bill for a given month.
+// Returns: "paid" | "overdue" | "due-soon" | "pending" | "future"
+function billStatus(bill, monthStr, payments, today = new Date()) {
+  const pay = payments?.[monthStr]?.[bill.id];
+  if (pay) return "paid";
+  const cm = currentMonth(today);
+  if (monthStr < cm) return "overdue"; // past month, unpaid
+  if (monthStr > cm) return "future";
+  // Same month: compare dueDay to today.getDate()
+  const capped = Math.min(bill.dueDay, lastDayOfMonth(monthStr));
+  const daysUntilDue = capped - today.getDate();
+  if (daysUntilDue < 0)             return "overdue";
+  if (daysUntilDue <= DUE_SOON_DAYS) return "due-soon";
+  return "pending";
+}
+
+function statusLabel(status, dueDay, today = new Date(), monthStr) {
+  const cm = currentMonth(today);
+  const capped = monthStr ? Math.min(dueDay, lastDayOfMonth(monthStr)) : dueDay;
+  if (status === "paid")      return { label: "Pagado",      tone: "ok" };
+  if (status === "overdue") {
+    if (monthStr && monthStr < cm) return { label: "Sin pagar", tone: "bad" };
+    return { label: "Vencido", tone: "bad" };
+  }
+  if (status === "due-soon") {
+    const diff = capped - today.getDate();
+    return { label: diff === 0 ? "Vence hoy" : `Vence en ${diff} día${diff===1?"":"s"}`, tone: "warn" };
+  }
+  if (status === "future")    return { label: `Vence día ${capped}`,         tone: "muted" };
+  return { label: `Vence día ${capped}`, tone: "muted" };
+}
+
+function renderPagos(monthStr) {
+  app.viewedPagosMonth = monthStr;
+
+  $("#pagos-month-title").textContent = monthTitle(monthStr);
+  const isCurrent = monthStr === currentMonth();
+  $("#pagos-jump-today").classList.toggle("hidden", isCurrent);
+
+  const bills = app.state?.bills || [];
+  const payments = app.state?.payments || {};
+  const today = new Date();
+
+  // Filter bills that existed at or before this month
+  const monthDate = new Date(...monthStr.split("-").map(Number).concat([1]));
+  monthDate.setMonth(monthDate.getMonth() + 1); // first of next month
+  const visibleBills = bills.filter(b => !b.createdAt || b.createdAt < monthDate.getTime());
+
+  // Sort: overdue first, then due-soon, then pending by dueDay, then paid last
+  const statusOrder = { "overdue": 0, "due-soon": 1, "pending": 2, "future": 3, "paid": 4 };
+  const enriched = visibleBills.map(b => ({
+    bill: b,
+    status: billStatus(b, monthStr, payments, today),
+    payment: payments[monthStr]?.[b.id],
+  }));
+  enriched.sort((a, b) => {
+    const sd = statusOrder[a.status] - statusOrder[b.status];
+    if (sd !== 0) return sd;
+    return a.bill.dueDay - b.bill.dueDay;
+  });
+
+  // Totals / summary
+  const totalExpected = visibleBills.reduce((s, b) => {
+    const pay = payments[monthStr]?.[b.id];
+    return s + (pay ? Number(pay.amount) : Number(b.defaultAmount));
+  }, 0);
+  const totalPaid = visibleBills.reduce((s, b) => {
+    const pay = payments[monthStr]?.[b.id];
+    return s + (pay ? Number(pay.amount) : 0);
+  }, 0);
+  const paidCount = visibleBills.filter(b => payments[monthStr]?.[b.id]).length;
+  $("#pagos-paid-amount").textContent = fmtMoney(totalPaid);
+  $("#pagos-total-sub").textContent   = `de ${fmtMoney(totalExpected)} · ${paidCount}/${visibleBills.length} cuentas`;
+  $("#pagos-count").textContent       = visibleBills.length === 1 ? "1 cuenta" : `${visibleBills.length} cuentas`;
+
+  // Progress ring
+  const pct = visibleBills.length ? Math.round((paidCount / visibleBills.length) * 100) : 0;
+  const circ = 2 * Math.PI * 16;
+  const ring = $("#pagos-ring-fg");
+  if (ring) ring.style.strokeDashoffset = (circ * (1 - pct/100)).toFixed(2);
+  $("#pagos-ring-label").textContent = pct + "%";
+
+  // List
+  const list = $("#pagos-list");
+  list.innerHTML = "";
+  if (!visibleBills.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty-state";
+    empty.textContent = "No hay cuentas. Agrega una para empezar.";
+    list.appendChild(empty);
+  } else {
+    enriched.forEach(({ bill, status, payment }) => {
+      list.appendChild(buildBillRow(bill, status, payment, monthStr, today));
+    });
+  }
+
+  renderBalance(visibleBills, payments, monthStr);
+}
+
+function buildBillRow(bill, status, payment, monthStr, today) {
+  const li = document.createElement("li");
+  li.className = `bill-row bill-${status}`;
+  li.dataset.billId = bill.id;
+
+  const { label: statusTxt, tone } = statusLabel(status, bill.dueDay, today, monthStr);
+  const payer = bill.defaultPayer === "both" ? "Ambos" : USERS[bill.defaultPayer]?.name || "—";
+  const payerChip = bill.defaultPayer === "both" ? "both" : bill.defaultPayer;
+
+  if (status === "paid" && payment) {
+    const by = payment.paidBy === "both" ? "Ambos" : USERS[payment.paidBy]?.name || "—";
+    const date = new Date(payment.paidAt);
+    const dateStr = `${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
+    li.innerHTML = `
+      <div class="bill-icon">${esc(bill.icon || "💰")}</div>
+      <div class="bill-body">
+        <div class="bill-top">
+          <span class="bill-name">${esc(bill.name)}</span>
+          <span class="bill-status ${tone}">${esc(statusTxt)}</span>
+        </div>
+        <div class="bill-sub">${fmtMoney(payment.amount)} · ${esc(by)} · ${esc(dateStr)}${payment.note ? ` · ${esc(payment.note)}` : ""}</div>
+      </div>
+      <div class="bill-actions">
+        <button class="bill-action-btn edit-btn" type="button" aria-label="Editar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="bill-action-btn unpay-btn" type="button" aria-label="Deshacer pago">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+        </button>
+      </div>
+    `;
+  } else {
+    li.innerHTML = `
+      <div class="bill-icon">${esc(bill.icon || "💰")}</div>
+      <div class="bill-body">
+        <div class="bill-top">
+          <span class="bill-name">${esc(bill.name)}</span>
+          <span class="bill-status ${tone}">${esc(statusTxt)}</span>
+        </div>
+        <div class="bill-sub">
+          <span class="bill-amount">${fmtMoney(bill.defaultAmount)}</span>
+          <span class="who-chip ${payerChip}">${esc(payer)}</span>
+        </div>
+      </div>
+      <div class="bill-actions">
+        <button class="bill-action-btn edit-btn" type="button" aria-label="Editar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="bill-pay-btn" type="button">Pagar</button>
+      </div>
+    `;
+  }
+
+  li.querySelector(".edit-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    openBillModal(bill);
+  });
+
+  const payBtn = li.querySelector(".bill-pay-btn");
+  if (payBtn) {
+    payBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openPayModal(bill, monthStr);
+    });
+  }
+
+  const unpayBtn = li.querySelector(".unpay-btn");
+  if (unpayBtn) {
+    unpayBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("¿Deshacer este pago?")) return;
+      try {
+        await sendOp({ op: "unpayBill", id: bill.id, month: monthStr });
+        toast("Pago deshecho");
+        renderPagos(monthStr);
+      } catch {
+        toast("No se pudo deshacer");
+      }
+    });
+  }
+
+  return li;
+}
+
+// Simple balance tracker: what each person paid out vs the fair share.
+// Fair share for "both" bills = 50/50; solo bills belong to that person.
+function renderBalance(bills, payments, monthStr) {
+  const panel = $("#pagos-balance");
+  const m = payments[monthStr] || {};
+  if (!Object.keys(m).length || !bills.length) {
+    panel.classList.add("hidden");
+    return;
+  }
+  let rubenPaid = 0, nataliaPaid = 0, sharedPaid = 0;
+  let rubenOwes = 0, nataliaOwes = 0;
+
+  for (const b of bills) {
+    const pay = m[b.id];
+    if (!pay) continue;
+    const amount = Number(pay.amount);
+    // Who actually paid
+    if (pay.paidBy === "ruben") rubenPaid += amount;
+    else if (pay.paidBy === "natalia") nataliaPaid += amount;
+    else sharedPaid += amount;
+    // Fair share based on the bill's default payer
+    if (b.defaultPayer === "both") {
+      // half belongs to each
+      rubenOwes += amount / 2;
+      nataliaOwes += amount / 2;
+    } else {
+      // solo bill — fair share falls on defaultPayer
+      if (b.defaultPayer === "ruben") rubenOwes += amount;
+      else nataliaOwes += amount;
+    }
+  }
+
+  const rubenNet   = rubenPaid   - rubenOwes;   // positive = paid more than share
+  const nataliaNet = nataliaPaid - nataliaOwes;
+
+  $("#balance-ruben-name").textContent   = "Rubén";
+  $("#balance-natalia-name").textContent = "Natalia";
+  $("#balance-ruben").textContent   = (rubenNet   >= 0 ? "+" : "") + fmtMoney(rubenNet);
+  $("#balance-natalia").textContent = (nataliaNet >= 0 ? "+" : "") + fmtMoney(nataliaNet);
+  $("#balance-shared").textContent  = fmtMoney(sharedPaid);
+  panel.classList.remove("hidden");
+}
+
+// --- Month navigation ---
+$("#pagos-prev")?.addEventListener("click", () => {
+  renderPagos(monthOffset(app.viewedPagosMonth || currentMonth(), -1));
+});
+$("#pagos-next")?.addEventListener("click", () => {
+  renderPagos(monthOffset(app.viewedPagosMonth || currentMonth(), +1));
+});
+$("#pagos-jump-today")?.addEventListener("click", () => renderPagos(currentMonth()));
+
+// --- Bill modal (add / edit) ---
+const billModal = $("#bill-modal");
+const billForm  = $("#bill-form");
+
+function openBillModal(existing = null) {
+  billForm.reset();
+  $("#bf-id").value = existing?.id || "";
+  $("#bill-modal-title").textContent = existing ? "Editar cuenta" : "Nueva cuenta";
+  $("#bf-submit").textContent = existing ? "Guardar cambios" : "Agregar cuenta";
+  $("#bf-delete").classList.toggle("hidden", !existing);
+
+  if (existing) {
+    $("#bf-name").value = existing.name;
+    $("#bf-amount").value = existing.defaultAmount;
+    $("#bf-dueday").value = existing.dueDay;
+    const catInput = billForm.querySelector(`input[name="bcat"][value="${existing.category}"]`);
+    if (catInput) catInput.checked = true;
+    const payerInput = billForm.querySelector(`input[name="bpayer"][value="${existing.defaultPayer}"]`);
+    if (payerInput) payerInput.checked = true;
+    const iconInput = billForm.querySelector(`input[name="bicon"][value="${existing.icon || "💰"}"]`);
+    if (iconInput) iconInput.checked = true;
+  } else {
+    // Smart defaults
+    billForm.querySelector('input[name="bcat"][value="servicios"]').checked = true;
+    billForm.querySelector('input[name="bpayer"][value="both"]').checked = true;
+    billForm.querySelector('input[name="bicon"][value="💰"]').checked = true;
+  }
+
+  $("#bf-error").classList.add("hidden");
+  billModal.classList.remove("hidden");
+  setTimeout(() => $("#bf-name").focus(), 100);
+  document.body.style.overflow = "hidden";
+}
+
+function closeBillModal() {
+  billModal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+billModal.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close-modal]")) closeBillModal();
+});
+
+$("#add-bill-btn")?.addEventListener("click", () => openBillModal());
+
+$("#bf-delete")?.addEventListener("click", async () => {
+  const id = $("#bf-id").value;
+  if (!id) return;
+  if (!confirm("¿Eliminar esta cuenta? Se borrará su historial de pagos.")) return;
+  try {
+    await sendOp({ op: "deleteBill", id });
+    toast("Cuenta eliminada");
+    closeBillModal();
+    renderPagos(app.viewedPagosMonth || currentMonth());
+  } catch {
+    toast("No se pudo eliminar");
+  }
+});
+
+billForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#bf-error");
+  err.classList.add("hidden");
+
+  const fd = new FormData(billForm);
+  const id = $("#bf-id").value;
+  const bill = {
+    name: $("#bf-name").value.trim(),
+    defaultAmount: Number($("#bf-amount").value),
+    dueDay: Number($("#bf-dueday").value),
+    category: fd.get("bcat"),
+    defaultPayer: fd.get("bpayer"),
+    icon: fd.get("bicon") || "💰",
+  };
+  if (!bill.name) { err.textContent = "Pon un nombre"; err.classList.remove("hidden"); return; }
+  if (!(bill.defaultAmount >= 0)) { err.textContent = "Monto inválido"; err.classList.remove("hidden"); return; }
+  if (!(bill.dueDay >= 1 && bill.dueDay <= 31)) { err.textContent = "Día inválido (1–31)"; err.classList.remove("hidden"); return; }
+
+  const btn = $("#bf-submit");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+  try {
+    if (id) await sendOp({ op: "editBill", id, bill });
+    else    await sendOp({ op: "addBill", bill });
+    toast(id ? "Cuenta actualizada" : "Cuenta agregada");
+    closeBillModal();
+    renderPagos(app.viewedPagosMonth || currentMonth());
+  } catch {
+    err.textContent = "No se pudo guardar";
+    err.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = id ? "Guardar cambios" : "Agregar cuenta";
+  }
+});
+
+// --- Pay modal ---
+const payModal = $("#pay-modal");
+const payForm  = $("#pay-form");
+
+function openPayModal(bill, monthStr) {
+  payForm.reset();
+  $("#pf-bill-id").value  = bill.id;
+  $("#pf-month").value    = monthStr;
+  $("#pf-icon").textContent     = bill.icon || "💰";
+  $("#pf-bill-name").textContent = bill.name;
+  $("#pf-month-label").textContent = monthTitle(monthStr);
+  $("#pf-amount").value = bill.defaultAmount;
+  const payer = bill.defaultPayer;
+  const payerInput = payForm.querySelector(`input[name="paidBy"][value="${payer}"]`);
+  if (payerInput) payerInput.checked = true;
+  $("#pf-error").classList.add("hidden");
+  payModal.classList.remove("hidden");
+  setTimeout(() => $("#pf-amount").select(), 100);
+  document.body.style.overflow = "hidden";
+}
+function closePayModal() {
+  payModal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+payModal.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close-modal]")) closePayModal();
+});
+
+payForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#pf-error");
+  err.classList.add("hidden");
+  const id = $("#pf-bill-id").value;
+  const month = $("#pf-month").value;
+  const fd = new FormData(payForm);
+  const amount = Number($("#pf-amount").value);
+  const paidBy = fd.get("paidBy") || "both";
+  const note   = $("#pf-note").value.trim();
+
+  if (!(amount >= 0)) {
+    err.textContent = "Monto inválido";
+    err.classList.remove("hidden");
+    return;
+  }
+  const btn = $("#pf-submit");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+  try {
+    await sendOp({ op: "payBill", id, month, amount, paidBy, note });
+    toast("Pago registrado");
+    closePayModal();
+    renderPagos(month);
+  } catch {
+    err.textContent = "No se pudo guardar";
+    err.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Marcar pagada";
+  }
+});
+
 // ========== Sunday review ==========
 function renderSundayReview() {
   const now = new Date();
@@ -889,6 +1316,38 @@ async function showLocalNotif(title, body) {
   else if ("Notification" in window) new Notification(title, opts);
 }
 
+async function notifyBillsDueSoon() {
+  if (!app.user) return;
+  if (localStorage.getItem(LS_NOTIF) !== "on") return;
+  const bills = app.state?.bills || [];
+  if (!bills.length) return;
+  const today = new Date();
+  const cm = currentMonth(today);
+  const payments = app.state?.payments || {};
+  const urgent = bills.filter(b => {
+    if (payments[cm]?.[b.id]) return false; // already paid this month
+    const capped = Math.min(b.dueDay, lastDayOfMonth(cm));
+    const diff = capped - today.getDate();
+    return diff >= 0 && diff <= DUE_SOON_DAYS;
+  });
+  const overdue = bills.filter(b => {
+    if (payments[cm]?.[b.id]) return false;
+    const capped = Math.min(b.dueDay, lastDayOfMonth(cm));
+    return today.getDate() > capped;
+  });
+  if (overdue.length) {
+    showLocalNotif(
+      `${overdue.length} cuenta${overdue.length===1?" vencida":"s vencidas"}`,
+      overdue.map(b => b.name).slice(0, 3).join(", ")
+    );
+  } else if (urgent.length) {
+    showLocalNotif(
+      `${urgent.length} cuenta${urgent.length===1?" por pagar":"s por pagar pronto"}`,
+      urgent.map(b => `${b.name} (día ${b.dueDay})`).slice(0, 3).join(", ")
+    );
+  }
+}
+
 function scheduleReminders() {
   if (localStorage.getItem(LS_NOTIF) !== "on") return;
   const times = [{ h: 9, m: 0 }, { h: 18, m: 0 }];
@@ -912,6 +1371,8 @@ function scheduleReminders() {
           `Te quedan ${mine.length} tareas hoy. ¡Tú puedes!`
         );
       }
+      // Morning reminder also checks upcoming bills
+      if (h === 9 && app.user) notifyBillsDueSoon();
       scheduleReminders();
     }, Math.min(ms, 2147483000));
   });
