@@ -1,13 +1,13 @@
-// Chores data — restructured for accurate business logic.
+// Chores data — current logic.
 //
-// Structure:
-//   DAILY_TASKS: run every day, not tied to week rotation. Shared checkboxes
-//     for dog duties; "either can check."
-//   WEEK_PLAN[w].days[dayKey]: day-specific tasks, one entry per checkable
-//     item. who can be "ruben" | "natalia" | "both" | "note".
-//
-// Regla de oro is encoded: for breakfast/lunch the principal cooks and apoyo
-// washes; for dinner apoyo cooks and principal washes.
+// Model:
+//   - Cocina: roles fijos (Natalia desayuno, Rubén cena; comida varía por día).
+//   - Operativo diario: una persona por semana se encarga de perros, trastes
+//     y limpieza diaria. Sem 1 y 3: Rubén. Sem 2 y 4: Natalia.
+//   - Lavandería: días fijos L–J con asignación fija (no rota por semana).
+//   - Tareas semanales: se distribuyen por día, algunas alternan por semana,
+//     otras son siempre de la misma persona.
+//   - Tareas mensuales: 2 por semana, asignadas a Sábado.
 
 const USERS = {
   ruben:   { name: "Rubén",   color: "#2563eb" },
@@ -18,14 +18,32 @@ const DAY_NAMES = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","S
 const MONTH_NAMES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const DAY_KEYS = ["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
 
-// Runs every day, both users share them (anyone can check)
-const DAILY_TASKS = [
-  { id: "perros-comida-am", t: "Comida perros — mañana",  who: "both", group: "perros" },
-  { id: "perros-comida-pm", t: "Comida perros — noche",   who: "both", group: "perros" },
-  { id: "perros-med-am",    t: "Medicina del perro — mañana", who: "both", group: "perros" },
-  { id: "perros-med-pm",    t: "Medicina del perro — noche",  who: "both", group: "perros" },
-  { id: "perros-limpieza",  t: "Limpiar pipís y popós",    who: "both", group: "perros" },
-];
+// Empty in the new model — perros now live in per-day tasks tied to "operativo".
+// The constant is kept for backward compatibility with code that references it.
+const DAILY_TASKS = [];
+
+// Who is "operativo diario" for a given rotation week.
+// Sem 1 y 3 → Rubén · Sem 2 y 4 → Natalia.
+function operativoFor(weekNum) {
+  return (weekNum === 1 || weekNum === 3) ? "ruben" : "natalia";
+}
+function otherUser(u) { return u === "ruben" ? "natalia" : "ruben"; }
+
+// Cooking assignments — fixed across the month (no P/A rotation).
+//   Desayuno: Natalia siempre.
+//   Cena:     Rubén siempre.
+//   Comida:   L y X → Natalia; V → Rubén; M, J, S no tienen "Hacer comida"
+//             prescrito (se usa lo cocinado en batch / improvisado).
+function cookingFor(meal, dayKey) {
+  if (meal === "desayuno") return "natalia";
+  if (meal === "cena")     return "ruben";
+  if (meal === "comida") {
+    if (dayKey === "lunes" || dayKey === "miercoles") return "natalia";
+    if (dayKey === "viernes") return "ruben";
+    return null;
+  }
+  return null;
+}
 
 // --- MEAL PLAN per week+day ---
 // Rotates weekly (sem 1–4). Each day has desayuno/comida/cena planned.
@@ -65,121 +83,173 @@ const MEALS = {
   },
 };
 
-// --- LAUNDRY SCHEDULE ---
-// New rule: 1 load per weekday (L–V), each day has a fixed type.
-// Principal of the week does L/X/V; apoyo does M/J.
-// Same person: lavar + tender + doblar + guardar (incluyendo ropa del otro).
+// --- LAUNDRY ---
+// Lunes-Jueves, día y persona fijos (no rota). Quien lava también tiende y
+// dobla; cada quien guarda LA SUYA por la noche (tasks separadas).
 const LAUNDRY_BY_DAY = {
-  lunes:     { type: "Ropa negra",    steps: "Lavar + tender + doblar + guardar",         role: "principal" },
-  martes:    { type: "Ropa blanca",   steps: "Lavar + tender + doblar + guardar",         role: "apoyo" },
-  miercoles: { type: "Ropa de color", steps: "Lavar + tender + doblar + guardar",         role: "principal" },
-  jueves:    { type: "Ropa de cama",  steps: "Lavar + tender + doblar + cambiar sábanas", role: "apoyo" },
-  viernes:   { type: "Toallas",       steps: "Lavar + tender + doblar + guardar",         role: "principal" },
+  lunes:     { type: "Ropa negra",   who: "ruben"   },
+  martes:    { type: "Ropa blanca",  who: "natalia" },
+  miercoles: { type: "Toallas",      who: "ruben"   },
+  jueves:    { type: "Ropa de color",who: "natalia" },
 };
 
-// Builds a weekday (lun–sáb) routine from the principal/apoyo assignment.
-// Encodes regla de oro: si uno cocina, el otro lava.
-function weekdayRoutine(P, A, meals) {
-  return [
-    { id: "desayuno",         t: "Hacer desayuno",           subtitle: meals?.desayuno, who: P, group: "comidas" },
-    { id: "trastes-desayuno", t: "Lavar trastes desayuno",   who: A, group: "comidas" },
-    { id: "comida",           t: "Hacer comida",             subtitle: meals?.comida,   who: P, group: "comidas" },
-    { id: "trastes-comida",   t: "Lavar trastes comida",     who: A, group: "comidas" },
-    { id: "cena",             t: "Hacer cena",               subtitle: meals?.cena,     who: A, group: "comidas" },
-    { id: "trastes-cena",     t: "Lavar trastes cena",       who: P, group: "comidas" },
-    { id: "barra",            t: "Limpiar barra y comedor",  who: A, group: "limpieza" },
-  ];
-}
+// --- TAREAS SEMANALES POR DÍA ---
+// Algunas alternan por semana (L basura/barrer, X baño común, S batch/perras),
+// otras son fijas siempre (M estantes, J barrer, V basura+estantes).
+function weeklyTasksForDay(dayKey, weekNum) {
+  const oddPattern = (weekNum === 1 || weekNum === 3); // sem 1/3 = Rubén operativo
+  const tasks = [];
 
-function laundryFor(dayId, P, A) {
-  const info = LAUNDRY_BY_DAY[dayId];
-  if (!info) return null;
-  const who = info.role === "principal" ? P : A;
-  return {
-    id: `${dayId}-lavanderia`,
-    t: `Lavandería: ${info.type}`,
-    subtitle: info.steps,
-    who,
-    group: "ropa",
-  };
-}
-
-function makeWeek(P, A, weekNum, extras = {}) {
-  const meals = MEALS[weekNum] || {};
-  const weekday = (dayId) => {
-    const base = weekdayRoutine(P, A, meals[dayId]).map(t => ({ ...t, id: `${dayId}-${t.id}` }));
-    const laundry = laundryFor(dayId, P, A);
-    if (laundry) base.push(laundry);
-    return base;
-  };
-
-  const plan = {
-    lunes:     weekday("lunes"),
-    martes:    weekday("martes").concat([
-      { id: "martes-barrer",  t: "Barrer pisos",  who: A, group: "limpieza" },
-      { id: "martes-trapear", t: "Trapear pisos", who: A, group: "limpieza" },
-    ]),
-    miercoles: weekday("miercoles"),
-    jueves:    weekday("jueves").concat([
-      { id: "jueves-estantes",   t: "Limpiar estantes de cocina", who: A, group: "limpieza" },
-      { id: "jueves-microondas", t: "Limpiar microondas",         who: A, group: "limpieza" },
-    ]),
-    viernes:   weekday("viernes").concat([
-      { id: `viernes-nota-${P}`, t: `${USERS[P].name} trabaja 3pm–9pm`, who: "note" },
-    ]),
-    sabado: (() => {
-      // Saturday: meals + barra (weekday routine) but NO laundry.
-      const base = weekdayRoutine(P, A, meals.sabado).map(t => ({ ...t, id: `sabado-${t.id}` }));
-      return base.concat([
-        { id: "sabado-bano-principal", t: "Limpiar baño 1 + baño común", who: P, group: "baños" },
-        { id: "sabado-bano-apoyo",     t: "Limpiar su baño",             who: A, group: "baños" },
-      ]);
-    })(),
-    // Sunday: outdoor only. Laundry moved to weekdays.
-    domingo: [
-      { id: "domingo-jardin",     t: "Limpiar jardín",    who: P, group: "exterior" },
-      { id: "domingo-cochera",    t: "Limpiar cochera",   who: A, group: "exterior" },
-    ],
-  };
-
-  // Merge week-specific extras (monthly tasks that land on specific weeks)
-  for (const day in extras) {
-    plan[day] = plan[day].concat(extras[day]);
+  switch (dayKey) {
+    case "lunes":
+      tasks.push({ id: "basura",        t: "Sacar la basura",        who: oddPattern ? "ruben"   : "natalia", group: "limpieza" });
+      tasks.push({ id: "barrer",        t: "Barrer + trapear",        who: oddPattern ? "natalia" : "ruben",   group: "limpieza" });
+      break;
+    case "martes":
+      tasks.push({ id: "estantes-microondas", t: "Limpiar estantes + microondas", who: "ruben", group: "limpieza" });
+      break;
+    case "miercoles":
+      tasks.push({ id: "bano-natalia",  t: "Limpiar baño de Natalia", who: "natalia", group: "baños" });
+      tasks.push({ id: "bano-ruben",    t: "Limpiar baño de Rubén",   who: "ruben",   group: "baños" });
+      tasks.push({ id: "bano-comun",    t: "Limpiar baño común",      who: oddPattern ? "natalia" : "ruben", group: "baños" });
+      break;
+    case "jueves":
+      tasks.push({ id: "barrer-trapear", t: "Barrer + trapear",       who: "ruben",   group: "limpieza" });
+      break;
+    case "viernes":
+      tasks.push({ id: "basura-estantes", t: "Sacar basura + estantes",who: "natalia", group: "limpieza" });
+      break;
+    case "sabado":
+      tasks.push({ id: "super-compras",   t: "Súper + compras",        who: "both",                          group: "comidas" });
+      tasks.push({ id: "batch-cooking",   t: "Batch cooking",           who: oddPattern ? "natalia" : "ruben", group: "comidas" });
+      tasks.push({ id: "comida-perras",   t: "Preparar comida de las perras", who: oddPattern ? "ruben" : "natalia", group: "perros" });
+      tasks.push({ id: "jardin",          t: "Limpiar jardín",          who: oddPattern ? "ruben" : "natalia", group: "exterior" });
+      tasks.push({ id: "cochera",         t: "Limpiar cochera",         who: oddPattern ? "ruben" : "natalia", group: "exterior" });
+      tasks.push({ id: "sabanas",         t: "Cambiar sábanas",         who: "both",                          group: "ropa" });
+      break;
+    case "domingo":
+      // Día de descanso completo — solo se mantiene la rutina diaria del operativo.
+      break;
   }
-  return plan;
+  return tasks;
 }
 
-// Monthly tasks, mapped to the week they should happen per the plan image
-const WEEK_EXTRAS = {
-  1: {},
-  2: {
-    // "Lavado de carro básico (ustedes) - Semana 2" — put on Sunday
-    domingo: [
-      { id: "mes-lavar-carro-basico", t: "Lavar carro (básico)", who: "both", group: "mensual", monthly: true },
-    ],
-  },
-  3: {
-    miercoles: [{ id: "mes-ventanales", t: "Limpiar ventanales", who: "ruben", group: "mensual", monthly: true }],
-    sabado:    [{ id: "mes-sillones",   t: "Aspirar sillones",   who: "natalia", group: "mensual", monthly: true }],
-    // Peluquería de 2 perros (servicio externo) — no checkbox, shown in Month view
-  },
-  4: {
-    miercoles: [{ id: "mes-mosquiteros", t: "Limpiar mosquiteros", who: "ruben", group: "mensual", monthly: true }],
-    domingo: [
-      { id: "mes-closets",     t: "Limpiar closets",         who: "natalia", group: "mensual", monthly: true },
-      { id: "mes-apagadores",  t: "Limpiar apagadores",      who: "natalia", group: "mensual", monthly: true },
-      { id: "mes-refri",       t: "Limpiar refri y alacena", who: "both",    group: "mensual", monthly: true },
-      { id: "mes-lavadora",    t: "Lavar lavadora",          who: "both",    group: "mensual", monthly: true },
-    ],
-    // Jardinería y lavado profundo de coche — servicios externos
-  },
+// --- TAREAS MENSUALES POR SEMANA ---
+// Una tarea para cada usuario por semana, ancladas a Sábado.
+const MONTHLY_BY_WEEK = {
+  1: [
+    { id: "ventanales", t: "Limpiar ventanales", who: "natalia", group: "mensual", monthly: true },
+    { id: "sillones",   t: "Aspirar sillones",   who: "ruben",   group: "mensual", monthly: true },
+  ],
+  2: [
+    { id: "mosquiteros", t: "Limpiar mosquiteros", who: "natalia", group: "mensual", monthly: true },
+    { id: "closets",     t: "Limpiar closets",     who: "ruben",   group: "mensual", monthly: true },
+  ],
+  3: [
+    { id: "refri-alacena", t: "Limpiar refri + alacena", who: "natalia", group: "mensual", monthly: true },
+    { id: "apagadores",    t: "Limpiar apagadores",      who: "ruben",   group: "mensual", monthly: true },
+  ],
+  4: [
+    { id: "lavadora-bote", t: "Lavar lavadora + bote de basura", who: "natalia", group: "mensual", monthly: true },
+    { id: "carro",         t: "Lavar el carro",                  who: "ruben",   group: "mensual", monthly: true },
+  ],
 };
+
+// Builds the full task list for a given (week, day).
+// Encapsulates: cocina, trastes, perros, barra, lavandería, tareas semanales,
+// tareas mensuales (en Sábado de su semana).
+function tasksForDay(weekNum, dayKey) {
+  const meals = (MEALS[weekNum] || {})[dayKey] || {};
+  const operativo = operativoFor(weekNum);
+  const tasks = [];
+
+  // --- Cocina + trastes ---
+  // No cooking on Sunday; meal plan only spans L–S.
+  if (dayKey !== "domingo") {
+    const desWho = cookingFor("desayuno", dayKey);
+    const comWho = cookingFor("comida",   dayKey);
+    const cenWho = cookingFor("cena",     dayKey);
+
+    if (desWho) tasks.push({ id: `${dayKey}-desayuno`, t: "Hacer desayuno", subtitle: meals.desayuno, who: desWho, group: "comidas" });
+    if (comWho) tasks.push({ id: `${dayKey}-comida`,   t: "Hacer comida",   subtitle: meals.comida,   who: comWho, group: "comidas" });
+    if (cenWho) tasks.push({ id: `${dayKey}-cena`,     t: "Hacer cena",     subtitle: meals.cena,     who: cenWho, group: "comidas" });
+
+    // Trastes: operativo se encarga de los tres
+    tasks.push({ id: `${dayKey}-trastes-desayuno`, t: "Lavar trastes desayuno", who: operativo, group: "comidas" });
+    if (comWho || dayKey === "sabado") {
+      tasks.push({ id: `${dayKey}-trastes-comida`, t: "Lavar trastes comida", who: operativo, group: "comidas" });
+    }
+    tasks.push({ id: `${dayKey}-trastes-cena`,     t: "Lavar trastes cena",     who: operativo, group: "comidas" });
+
+    // Limpieza diaria (barra y comedor)
+    tasks.push({ id: `${dayKey}-barra`, t: "Limpiar barra y comedor", who: operativo, group: "limpieza" });
+  }
+
+  // --- Perros (todos los días, operativo) ---
+  tasks.push({ id: `${dayKey}-perros-comida-am`, t: "Comida perros — mañana",     who: operativo, group: "perros" });
+  tasks.push({ id: `${dayKey}-perros-comida-pm`, t: "Comida perros — noche",       who: operativo, group: "perros" });
+  tasks.push({ id: `${dayKey}-perros-med-am`,    t: "Medicina perros — mañana",    who: operativo, group: "perros" });
+  tasks.push({ id: `${dayKey}-perros-med-pm`,    t: "Medicina perros — noche",     who: operativo, group: "perros" });
+  tasks.push({ id: `${dayKey}-perros-limpieza`,  t: "Limpiar pipís y popós",       who: operativo, group: "perros" });
+
+  // --- Lavandería del día (L–J) ---
+  const laundry = LAUNDRY_BY_DAY[dayKey];
+  if (laundry) {
+    tasks.push({
+      id: `${dayKey}-lavanderia`,
+      t: `Lavandería: ${laundry.type}`,
+      subtitle: "Lavar + tender + doblar",
+      who: laundry.who,
+      group: "ropa",
+    });
+    // Cada quien guarda la suya por la noche
+    tasks.push({ id: `${dayKey}-guardar-ruben`,   t: "Guardar tu ropa", who: "ruben",   group: "ropa" });
+    tasks.push({ id: `${dayKey}-guardar-natalia`, t: "Guardar tu ropa", who: "natalia", group: "ropa" });
+  }
+
+  // --- Friday work-schedule note (recordatorio, no checkable) ---
+  if (dayKey === "viernes") {
+    const worker = operativo === "ruben" ? "ruben" : "natalia";
+    tasks.push({
+      id: `viernes-nota-${worker}`,
+      t: `${USERS[worker].name} trabaja 3pm–9pm`,
+      who: "note",
+    });
+  }
+
+  // --- Tareas semanales del día ---
+  for (const wt of weeklyTasksForDay(dayKey, weekNum)) {
+    tasks.push({ ...wt, id: `${dayKey}-${wt.id}` });
+  }
+
+  // --- Tareas mensuales (Sábado de cada semana) ---
+  if (dayKey === "sabado") {
+    for (const mt of (MONTHLY_BY_WEEK[weekNum] || [])) {
+      tasks.push({ ...mt, id: `mensual-w${weekNum}-${mt.id}` });
+    }
+  }
+
+  return tasks;
+}
+
+function buildWeekPlan(weekNum) {
+  const op = operativoFor(weekNum);
+  const days = {};
+  for (const dk of DAY_KEYS) days[dk] = tasksForDay(weekNum, dk);
+  return {
+    operativo: op,
+    apoyo:     otherUser(op),
+    // Backwards-compat aliases — older render code reads these
+    principal: op,
+    days,
+  };
+}
 
 const WEEK_PLAN = {
-  1: { principal: "ruben",   apoyo: "natalia", days: makeWeek("ruben",   "natalia", 1, WEEK_EXTRAS[1]) },
-  2: { principal: "natalia", apoyo: "ruben",   days: makeWeek("natalia", "ruben",   2, WEEK_EXTRAS[2]) },
-  3: { principal: "ruben",   apoyo: "natalia", days: makeWeek("ruben",   "natalia", 3, WEEK_EXTRAS[3]) },
-  4: { principal: "natalia", apoyo: "ruben",   days: makeWeek("natalia", "ruben",   4, WEEK_EXTRAS[4]) },
+  1: buildWeekPlan(1),
+  2: buildWeekPlan(2),
+  3: buildWeekPlan(3),
+  4: buildWeekPlan(4),
 };
 
 // External services (informational, not checkable)

@@ -464,7 +464,12 @@ function renderToday() {
 
   $("#today-day").textContent = DAY_NAMES[now.getDay()];
   $("#today-date").textContent = formatDateEs(now);
-  $("#role-badge").textContent = iAmPrincipal ? "Responsable principal" : "Apoyo";
+  // "principal" is now an alias for "operativo de la semana" — the person who
+  // handles perros + trastes + limpieza diaria. The other person has fixed
+  // cooking/laundry duties.
+  $("#role-badge").textContent = iAmPrincipal
+    ? "Operativo de la semana"
+    : "Cocina y lavandería";
 
   const { daily, weekly, custom } = buildDayTasks(week, dayK, dk);
   const all = [...daily, ...weekly, ...custom];
